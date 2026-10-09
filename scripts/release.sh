@@ -47,7 +47,8 @@ mkdir -p "$KEG/bin"
 ditto "$APP" "$KEG/Helium Terminal.app"
 ln -s "../Helium Terminal.app/Contents/MacOS/helium-terminal" "$KEG/bin/helium"
 cp LICENSE README.md "$KEG/"
-tar -czf "$DIST/$BOTTLE" -C "$DIST/keg" helium-terminal
+# Without COPYFILE_DISABLE, macOS tar adds ._ files that break the app's signature.
+COPYFILE_DISABLE=1 tar -czf "$DIST/$BOTTLE" -C "$DIST/keg" helium-terminal
 rm -rf "$DIST/keg"
 (cd "$DIST" && shasum -a 256 "$ZIP" "$BOTTLE" > SHA256SUMS)
 cat "$DIST/SHA256SUMS"
