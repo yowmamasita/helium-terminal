@@ -113,6 +113,11 @@ final class Ghostty {
             window.notify(view, text: nil)
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             view?.setCursor(a.mouse_shape)
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            guard let view else { return false }
+            let link = a.mouse_over_link
+            view.pane?.hoveredLink = link.len > 0 && link.url != nil
+                ? String(data: Data(bytes: link.url, count: link.len), encoding: .utf8) : nil
         case GHOSTTY_ACTION_OPEN_URL:
             guard let ptr = a.open_url.url else { return false }
             let data = Data(bytes: ptr, count: Int(a.open_url.len))

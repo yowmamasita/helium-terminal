@@ -7,9 +7,19 @@ final class PaneView: NSView {
     let surface: SurfaceView
     weak var workspace: Workspace?
     private let ring = RingView()
+    private let linkPreview = NSTextField(labelWithString: "")
 
     var ringing = false {
         didSet { ring.isHidden = !ringing }
+    }
+
+    /// The URL under the mouse (libghostty reports it while a link is hovered with cmd held).
+    var hoveredLink: String? {
+        didSet {
+            linkPreview.stringValue = hoveredLink ?? ""
+            linkPreview.isHidden = hoveredLink == nil
+            layoutLinkPreview()
+        }
     }
 
     init(surface: SurfaceView) {
@@ -21,6 +31,23 @@ final class PaneView: NSView {
         ring.isHidden = true
         addSubview(surface)
         addSubview(ring)
+
+        linkPreview.font = .systemFont(ofSize: 11)
+        linkPreview.textColor = .labelColor
+        linkPreview.lineBreakMode = .byTruncatingMiddle
+        linkPreview.drawsBackground = true
+        linkPreview.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.92)
+        linkPreview.wantsLayer = true
+        linkPreview.layer?.cornerRadius = 4
+        linkPreview.isHidden = true
+        addSubview(linkPreview)
+    }
+
+    private func layoutLinkPreview() {
+        guard hoveredLink != nil else { return }
+        let size = linkPreview.intrinsicContentSize
+        let width = min(size.width + 12, bounds.width - 12)
+        linkPreview.frame = NSRect(x: 6, y: 6, width: max(width, 0), height: size.height + 4)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -29,6 +56,7 @@ final class PaneView: NSView {
         super.setFrameSize(newSize)
         surface.frame = bounds
         ring.frame = bounds
+        layoutLinkPreview()
     }
 
     func focusChanged(_ surface: SurfaceView) {

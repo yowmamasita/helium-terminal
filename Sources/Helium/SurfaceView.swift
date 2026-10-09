@@ -184,6 +184,9 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     override func cursorUpdate(with event: NSEvent) { cursor.set() }
 
+    // A cursor rect makes AppKit keep our cursor while the mouse moves; a bare set() gets reset.
+    override func resetCursorRects() { addCursorRect(bounds, cursor: cursor) }
+
     func setCursor(_ shape: ghostty_action_mouse_shape_e) {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_POINTER: cursor = .pointingHand
@@ -193,6 +196,7 @@ final class SurfaceView: NSView, NSTextInputClient {
         case GHOSTTY_MOUSE_SHAPE_NS_RESIZE, GHOSTTY_MOUSE_SHAPE_ROW_RESIZE: cursor = .resizeUpDown
         default: cursor = .arrow
         }
+        window?.invalidateCursorRects(for: self)
         cursor.set()
     }
 
@@ -236,6 +240,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     override func mouseExited(with event: NSEvent) {
         // -1/-1 tells libghostty the cursor left; skip while dragging so selection continues.
         guard let surface, NSEvent.pressedMouseButtons == 0 else { return }
+        pane?.hoveredLink = nil // libghostty sends no "left the link" for off-surface positions
         ghostty_surface_mouse_pos(surface, -1, -1, Self.mods(event.modifierFlags))
     }
 
