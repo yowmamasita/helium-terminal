@@ -1,0 +1,52 @@
+diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
+index 6276afd..fa485f2 100644
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -53,6 +53,16 @@ blending: configpkg.Config.AlphaBlending,
+ /// We start an AutoreleasePool before `drawFrame` and end it afterwards.
+ autorelease_pool: ?*objc.AutoreleasePool = null,
+ 
++/// helium-terminal: the surface on screen, retained. The other swap chain surface sits idle
++/// until the next frame, so it's marked purgeable (volatile) in between: macOS doesn't count
++/// volatile memory against the process, and every frame is a full redraw, so nothing is lost
++/// if the system reclaims it.
++last_presented: ?*macos.iosurface.IOSurface = null,
++
++extern "c" fn IOSurfaceSetPurgeable(buffer: *macos.iosurface.IOSurface, new_state: u32, old_state: ?*u32) i32;
++const purgeable_non_volatile: u32 = 0; // kIOSurfacePurgeableNonVolatile
++const purgeable_volatile: u32 = 1; // kIOSurfacePurgeableVolatile
++
+ pub fn init(
+     alloc: Allocator,
+     device: *const Device,
+@@ -137,6 +147,7 @@ pub fn init(
+ }
+ 
+ pub fn deinit(self: *Metal) void {
++    if (self.last_presented) |s| s.release();
+     self.queue.release();
+ 
+     // The MTLDevice is app-scoped and destroyed
+@@ -240,6 +251,14 @@ pub inline fn present(self: *Metal, target: Target, sync: bool) !void {
+     } else {
+         try self.layer.setSurface(target.surface);
+     }
++    if (self.last_presented == target.surface) return;
++    target.surface.retain();
++    if (self.last_presented) |prev| {
++        // Retained, so this is safe even if a resize already dropped the swap chain's reference.
++        _ = IOSurfaceSetPurgeable(prev, purgeable_volatile, null);
++        prev.release();
++    }
++    self.last_presented = target.surface;
+ }
+ 
+ /// Returns the options to use when constructing buffers.
+@@ -383,5 +402,7 @@ pub inline fn beginFrame(
+     /// The target is presented via the provided renderer's API when completed.
+     target: *Target,
+ ) !Frame {
++    // Drawing into it again: make it ordinary memory before the GPU writes to it.
++    _ = IOSurfaceSetPurgeable(target.surface, purgeable_non_volatile, null);
+     return try Frame.begin(.{ .queue = self.queue }, renderer, target);
+ }

@@ -62,7 +62,7 @@ final class Updater {
     func check() {
         guard unavailableReason == nil else { return }
         switch state {
-        case .checking, .downloading: return
+        case .checking, .downloading, .ready: return // .ready: keep "Relaunch to update" until the user does
         default: break
         }
         state = .checking
@@ -173,10 +173,12 @@ final class Updater {
         return dict[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
-    static func verify(_ app: URL, team: String) -> Bool {
+    static func verify(_ app: URL, team: String,
+                       identifier id: String = Bundle.main.bundleIdentifier ?? "io.github.yowmamasita.helium-terminal") -> Bool {
         var code: SecStaticCode?
         var req: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\" and notarized"
+        // Pin the bundle ID too, so another notarized app from the same team can't be swapped in.
+        let text = "anchor apple generic and identifier \"\(id)\" and certificate leaf[subject.OU] = \"\(team)\" and notarized"
         guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
               SecRequirementCreateWithString(text as CFString, [], &req) == errSecSuccess, let req else { return false }
         let flags = SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)

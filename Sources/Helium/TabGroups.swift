@@ -21,6 +21,7 @@ final class TabGroup {
         self.collapsed = collapsed
     }
 
+    var displayName: String { name.isEmpty ? "Unnamed group" : name }
     var nsColor: NSColor { Self.colors.first { $0.name == color }?.color ?? .systemGray }
     var textColor: NSColor { color == "Yellow" ? .black : .white }
 }

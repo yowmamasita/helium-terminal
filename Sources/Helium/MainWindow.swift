@@ -56,12 +56,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func select(_ ws: Workspace) {
+        // UI callbacks (a rename ending, a stale menu) can name a tab that has since closed.
+        guard workspaces.contains(where: { $0 === ws }) else { return }
         ws.group?.collapsed = false // like Chrome, activating a tab opens its group
         selected = ws
         for w in workspaces { w.root.isHidden = w !== ws }
         updateVisibility()
         if let pane = ws.focusedPane { window?.makeFirstResponder(pane.surface) }
         metadataChanged()
+        refreshGitStatus()
     }
 
     func gotoWorkspace(_ n: Int) {
@@ -89,7 +92,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         guard let app = Ghostty.shared.app, let pane = view.pane, let ws = pane.workspace else { return }
         let new = PaneView(surface: SurfaceView(app: app, workingDirectory: view.inheritedWorkingDirectory))
         ws.split(pane, with: new, dir)
-        window?.makeFirstResponder(new.surface)
+        // A split made in a background tab (from the socket) mustn't take the keyboard from the visible one.
+        if ws === selected { window?.makeFirstResponder(new.surface) } else { ws.focused = new }
+        updateVisibility()
     }
 
     func gotoSplit(from view: SurfaceView, _ dir: ghostty_action_goto_split_e) {
@@ -171,14 +176,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
         workspaces = out
         metadataChanged()
+        saveState()
     }
 
     /// Moves `ws` to the end of `group`.
     private func move(_ ws: Workspace, into group: TabGroup) {
-        workspaces.removeAll { $0 === ws }
+        guard let old = workspaces.firstIndex(where: { $0 === ws }) else { return }
+        workspaces.remove(at: old)
         ws.group = group
         let last = workspaces.lastIndex { $0.group === group }
-        workspaces.insert(ws, at: last.map { $0 + 1 } ?? workspaces.count)
+        workspaces.insert(ws, at: last.map { $0 + 1 } ?? old) // a new group starts where the tab was
+        if ws === selected { group.collapsed = false } // never hide the selected tab
         regroup()
     }
 
@@ -209,13 +217,36 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func metadataChanged() {
         sidebar.update(workspaces, selected: selected)
+        (window?.contentView as? ContainerView)?.setInfo(
+            selected.flatMap { ws in ws.branch.map { Metadata.branchParts($0, ws.gitStatus) } } ?? [])
         window?.title = selected?.title ?? "Helium"
+    }
+
+    private let gitQueue = DispatchQueue(label: "helium.git")
+    private var gitRunning = false
+
+    /// Runs git for the selected tab only, and only while the window can be seen.
+    func refreshGitStatus() {
+        guard !gitRunning, let ws = selected, ws.branch != nil, let dir = ws.cwd,
+              window?.occlusionState.contains(.visible) == true else { return }
+        gitRunning = true
+        gitQueue.async {
+            let st = Metadata.gitStatus(dir)
+            DispatchQueue.main.async { [weak self] in
+                self?.gitRunning = false
+                guard ws.cwd == dir, ws.gitStatus != st else { return }
+                ws.gitStatus = st
+                self?.metadataChanged()
+            }
+        }
     }
 
     func refreshMetadata() {
         let tree = ProcessTree()
         for ws in workspaces {
-            ws.branch = ws.cwd.flatMap(Metadata.gitBranch)
+            let branch = ws.cwd.flatMap(Metadata.gitBranch)
+            if branch != ws.branch { ws.gitStatus = nil } // another branch or repo; the next git run fills it in
+            ws.branch = branch
             ws.ports = Metadata.listeningPorts(ttys: ws.panes.compactMap(\.surface.ttyName), tree: tree)
             // Fall back to the foreground process's cwd when shell integration isn't reporting it.
             for p in ws.panes where p.surface.pwd == nil {
@@ -223,6 +254,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             }
         }
         refreshAgents(tree)
+        refreshGitStatus()
         metadataChanged()
         saveState()
     }
@@ -240,15 +272,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     /// rendering; libghostty also frees their GPU buffers.
     private func updateVisibility() {
         // Before the first show occlusionState reads "not visible" and no change
-        // notification follows, so only trust it once the window is on screen.
-        let windowVisible = window.map { !$0.isVisible || $0.occlusionState.contains(.visible) } ?? true
+        // notification follows, so only trust it once the window has been on screen.
+        // (Not isVisible: a minimized or hidden window is also not "visible" but must stop rendering.)
+        let windowVisible = !shown || window?.occlusionState.contains(.visible) != false
         for w in workspaces {
             let visible = windowVisible && w === selected
             w.panes.forEach { $0.surface.setVisible(visible) }
         }
     }
 
+    private var shown = false
+
     func windowDidChangeOcclusionState(_ notification: Notification) {
+        if window?.occlusionState.contains(.visible) == true { shown = true }
         updateVisibility()
     }
 
@@ -290,6 +326,33 @@ private final class ContainerView: NSView {
     let sidebar: NSView
     let content: NSView
     private let handle = ResizeHandle()
+    /// The selected tab's git branch and status, in the titlebar strip above the terminal.
+    private let info = NSStackView()
+    private var infoParts: [String] = []
+
+    /// Labels with native separators between them; rebuilt only when the text changes.
+    func setInfo(_ parts: [String]) {
+        guard parts != infoParts else { return }
+        infoParts = parts
+        info.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (i, text) in parts.enumerated() {
+            if i > 0 {
+                let line = NSBox()
+                line.boxType = .separator
+                line.translatesAutoresizingMaskIntoConstraints = false
+                line.heightAnchor.constraint(equalToConstant: 14).isActive = true
+                line.widthAnchor.constraint(equalToConstant: 1).isActive = true // narrow, so it draws vertically
+                info.addArrangedSubview(line)
+            }
+            let l = NSTextField(labelWithString: text)
+            l.font = .systemFont(ofSize: 12, weight: .medium)
+            l.textColor = .secondaryLabelColor
+            l.lineBreakMode = .byTruncatingTail
+            l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            info.addArrangedSubview(l)
+        }
+        needsLayout = true
+    }
 
     /// Sidebar width, dragged by the user and remembered across launches.
     private var sidebarWidth: CGFloat = {
@@ -304,6 +367,9 @@ private final class ContainerView: NSView {
         addSubview(sidebar)
         addSubview(content)
         addSubview(handle)
+        info.spacing = 12
+        info.alignment = .centerY
+        addSubview(info)
         handle.onDrag = { [weak self] x in self?.resizeSidebar(to: x) }
         NotificationCenter.default.addObserver(forName: .heliumSidebarWidthChanged, object: nil, queue: .main) {
             [weak self] _ in
@@ -326,12 +392,16 @@ private final class ContainerView: NSView {
 
     override func layout() {
         super.layout()
-        let w = sidebarWidth
+        // Re-clamp here too: shrinking the window must not push the terminal below 300 pt (or negative).
+        let w = min(sidebarWidth, max(160, bounds.width - 300))
         sidebar.frame = NSRect(x: 0, y: 0, width: w, height: bounds.height)
         handle.frame = NSRect(x: w - 3, y: 0, width: 6, height: bounds.height)
         // Leave room for the transparent titlebar above the terminal.
         let top = window.map { $0.frame.height - $0.contentLayoutRect.height } ?? 28
         content.frame = NSRect(x: w, y: 0, width: bounds.width - w, height: bounds.height - top)
+        let h = info.fittingSize.height
+        let width = min(info.fittingSize.width, max(0, bounds.width - w - 24)) // left-aligned, cut off at the right
+        info.frame = NSRect(x: w + 12, y: bounds.height - top + (top - h) / 2, width: width, height: h)
     }
 }
 
@@ -365,25 +435,30 @@ extension MainWindowController: TabGroupActions {
     func add(_ ws: Workspace, to group: TabGroup) { move(ws, into: group) }
 
     func removeFromGroup(_ ws: Workspace) {
-        guard let g = ws.group else { return }
+        guard let g = ws.group, let old = workspaces.firstIndex(where: { $0 === ws }) else { return }
         // Leave the group to sit right after it (an emptied group simply disappears).
-        workspaces.removeAll { $0 === ws }
+        workspaces.remove(at: old)
         ws.group = nil
         let last = workspaces.lastIndex { $0.group === g }
-        workspaces.insert(ws, at: last.map { $0 + 1 } ?? workspaces.count)
+        workspaces.insert(ws, at: last.map { $0 + 1 } ?? old)
         regroup()
     }
 
     func toggleCollapsed(_ group: TabGroup) {
         group.collapsed.toggle()
         // Chrome moves off a tab that disappears into a collapsed group.
-        if group.collapsed, let sel = selected, sel.group === group,
-           let other = workspaces.first(where: { $0.group?.collapsed != true }) {
+        if group.collapsed, let sel = selected, sel.group === group {
+            // With nowhere visible to go, stay expanded rather than hide the selected tab.
+            guard let other = workspaces.first(where: { $0.group?.collapsed != true }) else {
+                group.collapsed = false
+                return
+            }
             selected = nil
             select(other)
             group.collapsed = true
         }
         metadataChanged()
+        saveState()
     }
 
     func ungroup(_ group: TabGroup) {
@@ -404,5 +479,8 @@ extension MainWindowController: TabGroupActions {
         select(ws)
     }
 
-    func groupsChanged() { metadataChanged() }
+    func groupsChanged() {
+        metadataChanged()
+        saveState() // a group's name or color
+    }
 }

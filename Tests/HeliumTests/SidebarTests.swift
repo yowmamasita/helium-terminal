@@ -4,7 +4,7 @@ import XCTest
 
 final class SidebarTests: XCTestCase {
     /// Renders the sidebar offscreen; set HELIUM_SNAPSHOT=path to write a PNG for inspection.
-    func testRowsFitTheirContent() throws {
+    func testRowsAreAllTwoLines() throws {
         let plain = Workspace()
         let branch = Workspace(); branch.branch = "main"
         let busy = Workspace(); busy.branch = "feat/oauth-login"; busy.ports = [8080]
@@ -23,17 +23,8 @@ final class SidebarTests: XCTestCase {
 
         let heights = sidebar.rowHeights
         XCTAssertEqual(heights.count, 3)
-        XCTAssertLessThan(heights[0], heights[1], "a 1-line row must be shorter than a 2-line row")
-        XCTAssertLessThan(heights[1], heights[2], "a 2-line row must be shorter than a 4-line row")
-
-        // Notification text wraps to the sidebar's real width: wider sidebar, fewer lines, shorter row.
-        func busyRowHeight(width: CGFloat) -> CGFloat {
-            let s = SidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 500))
-            s.update([busy], selected: nil)
-            s.layoutSubtreeIfNeeded()
-            return s.rowHeights[0]
-        }
-        XCTAssertLessThan(busyRowHeight(width: 520), busyRowHeight(width: 220))
+        XCTAssertEqual(Set(heights).count, 1, "every row must be the same height: \(heights)")
+        XCTAssertGreaterThan(heights[0], 30, "an empty row still reserves two lines")
 
         if let out = ProcessInfo.processInfo.environment["HELIUM_SNAPSHOT"] {
             let rep = try XCTUnwrap(sidebar.bitmapImageRepForCachingDisplay(in: sidebar.bounds))
@@ -77,5 +68,83 @@ final class SidebarTests: XCTestCase {
             sidebar.cacheDisplay(in: sidebar.bounds, to: rep)
             try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
         }
+    }
+
+    /// A menu chosen after the sidebar rebuilt (an agent's title spinner does this constantly) must still act.
+    func testRowMenuWorksAfterRebuild() throws {
+        final class Actions: TabGroupActions {
+            var added: Workspace?
+            var groups: [TabGroup] { [] }
+            func addToNewGroup(_ ws: Workspace) { added = ws }
+            func add(_ ws: Workspace, to group: TabGroup) {}
+            func removeFromGroup(_ ws: Workspace) {}
+            func toggleCollapsed(_ group: TabGroup) {}
+            func ungroup(_ group: TabGroup) {}
+            func closeGroup(_ group: TabGroup) {}
+            func newTab(in group: TabGroup) {}
+            func groupsChanged() {}
+        }
+        let actions = Actions()
+        let ws = Workspace()
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 500))
+        sidebar.actions = actions
+        // The app's run loop drains a pool after every event; do the same between steps.
+        let menu: NSMenu? = autoreleasepool {
+            sidebar.update([ws], selected: ws)
+            func find(_ v: NSView) -> NSMenu? { v.menu(for: NSEvent()) ?? v.subviews.lazy.compactMap(find).first }
+            return find(sidebar)
+        }
+        autoreleasepool {
+            ws.customTitle = "renamed"
+            sidebar.update([ws], selected: ws)
+        }
+        let item = try XCTUnwrap(menu?.items.first { $0.title == "Add Tab to New Group" })
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        XCTAssertTrue(actions.added === ws)
+    }
+
+    /// If the group name popover can't show, the sidebar must not stay frozen (collapse would stop working).
+    func testSidebarUpdatesWhenGroupPopoverCannotShow() {
+        let g = TabGroup()
+        let ws = Workspace(); ws.group = g
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 500)) // no window: show fails
+        sidebar.update([ws], selected: ws)
+        XCTAssertEqual(sidebar.rowHeights.count, 2)
+        sidebar.editGroup(g)
+        g.collapsed = true
+        sidebar.update([ws], selected: nil)
+        XCTAssertEqual(sidebar.rowHeights.count, 1, "the collapsed group's tab must be hidden")
+    }
+
+    /// "Add Tab to Group" must not act on a group that went away while the menu was open.
+    func testAddToGroupIgnoresAGroupThatWentAway() throws {
+        final class Actions: TabGroupActions {
+            var groups: [TabGroup] = []
+            var addedTo: TabGroup?
+            func addToNewGroup(_ ws: Workspace) {}
+            func add(_ ws: Workspace, to group: TabGroup) { addedTo = group }
+            func removeFromGroup(_ ws: Workspace) {}
+            func toggleCollapsed(_ group: TabGroup) {}
+            func ungroup(_ group: TabGroup) {}
+            func closeGroup(_ group: TabGroup) {}
+            func newTab(in group: TabGroup) {}
+            func groupsChanged() {}
+        }
+        let a = TabGroup(name: "A"), b = TabGroup(name: "B")
+        let actions = Actions()
+        actions.groups = [a, b]
+        let ws = Workspace()
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 500))
+        sidebar.actions = actions
+        sidebar.update([ws], selected: ws)
+        func find(_ v: NSView) -> NSMenu? { v.menu(for: NSEvent()) ?? v.subviews.lazy.compactMap(find).first }
+        let menu = try XCTUnwrap(find(sidebar))
+        let sub = try XCTUnwrap(menu.items.first { $0.title == "Add Tab to Group" }?.submenu)
+        actions.groups = [b] // A's last tab closed while the menu was open
+        for title in ["A", "B"] {
+            let item = try XCTUnwrap(sub.items.first { $0.title == title })
+            NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        }
+        XCTAssertTrue(actions.addedTo === b)
     }
 }

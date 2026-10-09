@@ -144,6 +144,9 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A split removes and re-adds panes; a focused pane taken out of the window is never told
+        // it resigned, so recompute here rather than trust the last report.
+        syncFocus()
         guard let surface, let screen = window?.screen,
               let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return }
         ghostty_surface_set_display_id(surface, id)
@@ -154,6 +157,10 @@ final class SurfaceView: NSView, NSTextInputClient {
         let ok = super.becomeFirstResponder()
         if ok {
             syncFocus(isResponder: true)
+            // Only one surface has focus; any other still reported focused would keep blinking.
+            for p in Ghostty.shared.window?.workspaces.flatMap(\.panes) ?? [] where p.surface !== self {
+                p.surface.syncFocus(isResponder: false)
+            }
             pane?.focusChanged(self)
         }
         return ok
@@ -277,7 +284,8 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     override func keyDown(with event: NSEvent) {
         guard let surface else { return interpretKeyEvents([event]) }
-        pane?.userTyped()
+        // ⌘ shortcuts (switching tabs, copying) aren't answering a blocked agent.
+        if !event.modifierFlags.contains(.command) { pane?.userTyped() }
 
         // Apply option-as-alt and similar config by asking libghostty which mods translate text.
         let translated = Self.flags(ghostty_surface_key_translation_mods(surface, Self.mods(event.modifierFlags)))

@@ -8,8 +8,9 @@
 
 <p align="center"><a href="https://helium-terminal.bensarmiento.com">helium-terminal.bensarmiento.com</a></p>
 
-- A sidebar of vertical tabs showing the title, git branch, cwd, listening ports and the latest notification
-- A blue ring on a pane, and a dot on its tab, when the pane needs attention
+- A sidebar of vertical tabs showing the title, cwd and listening ports, with the selected tab's git branch,
+  ahead/behind counts and uncommitted changes above the terminal
+- A green ring on a pane, and a green edge on its tab, when the pane needs attention (the message is the tab's tooltip)
 - Horizontal and vertical splits inside each tab
 - A Unix socket API, plus the `helium` command-line tool
 - Rendering by libghostty (Metal), configured by your existing Ghostty config (`~/.config/ghostty/config`)
@@ -93,12 +94,13 @@ cmd+opt+arrows move between splits.
 
 ## Notifications
 
-A pane gets a blue ring, and its tab a blue dot and the message, when a program sends a desktop notification
-(OSC 9 or OSC 777), rings the bell, or runs `helium notify`. The blue ring clears when you focus the pane.
+A pane gets a green ring, and its tab a green right edge and the message as its tooltip, when a program sends a
+desktop notification (OSC 9 or OSC 777), rings the bell, or runs `helium notify`. The green ring clears when you
+focus the pane.
 
 Claude Code's "Claude is waiting for your input" reminder, sent about a minute after a turn ends, shows as
 "Done, waiting for you". When the message means an agent is blocked on you (Claude's "needs your permission",
-Codex's "Approval requested" or "wants to edit", "needs input" and similar), the pane gets an orange ring and its tab an orange **needs input** badge
+Codex's "Approval requested" or "wants to edit", "needs input" and similar), the pane gets an orange ring and its tab an orange right edge
 instead. It stays until you type into that pane. For Claude Code, add a hook:
 
 ```json
@@ -126,19 +128,20 @@ e.g. `{"cmd":"notify","pane":"3","arg":"done"}`.
 | | Helium | iTerm2 |
 |---|---|---|
 | App size | 15 MB | 176 MB |
-| Launch until the window appears | ~250 ms | ~590 ms |
-| Idle memory, one terminal | 88 MB | 204 MB (app and its session server) |
-| Idle CPU | 0.2% | 2.2% |
+| Launch until the window appears | ~250 ms | ~570 ms |
+| Idle memory, one terminal | 62 MB | 203 MB (app and its session server) |
+| Idle CPU | 0.1 to 0.3% | 1.9 to 2.4% |
 
-Medians of 5 background launches with fresh state, no keystrokes; CPU over 30 s idle. When Helium's window is
-covered or minimized it drops further (about 60 MB, 0.1% CPU), because it stops rendering and frees GPU buffers.
+Medians of 5 background launches with fresh state, no keystrokes; CPU over 30 s idle. Idle CPU varies between
+runs, so it's a range. When Helium's window is covered or minimized it stops rendering and frees its GPU buffers.
 
 How it stays light:
 - libghostty is built ReleaseFast without Sentry or translations, and patched for double buffering
   (`patches/`), so each visible pane holds one fewer full-window GPU surface.
 - A surface counts as focused only in the key window, so a background window stops blinking and redrawing.
 - Hidden tabs and covered or minimized windows stop rendering, and libghostty frees their GPU buffers.
-- Metadata (branch, ports, cwd) comes from file reads and libproc every 3 s, with no subprocesses.
+- Metadata (branch, ports, cwd) comes from file reads and libproc every 3 s. The only subprocess is one
+  `git status` (about 10 ms) for the selected tab, and only while the window is visible.
 
 ## Not included
 

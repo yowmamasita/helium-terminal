@@ -64,7 +64,7 @@ extension MainWindowController {
             return .split(vertical: s.isVertical, ratio: total > 0 ? Double(first / total) : 0.5, first: a, second: b)
         }
         let saved = workspaces.compactMap { ws in node(ws.root).map { (ws, $0) } }
-        let selected = workspaces.firstIndex { $0 === self.selected } ?? 0
+        let selected = saved.firstIndex { $0.0 === self.selected } ?? 0 // an index into the saved tabs
         return SessionState(tabs: saved.map(\.1), selected: selected,
                             titles: saved.map(\.0.customTitle), labels: saved.map(\.0.labels),
                             groups: groups.map { .init(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed) },
@@ -72,14 +72,16 @@ extension MainWindowController {
     }
 
     private static var lastSaved: Data?
+    /// Set while restore rebuilds tabs: each new tab would otherwise save a partial state over the full one.
+    private static var restoring = false
 
-    /// Writes the state when it changed. Called from the metadata poll and on quit.
+    /// Writes the state when it changed. Called from the metadata poll, after tab and group changes, and on quit.
     func saveState() {
-        guard let data = try? JSONEncoder().encode(captureState()), data != Self.lastSaved else { return }
-        Self.lastSaved = data
+        guard !Self.restoring, let data = try? JSONEncoder().encode(captureState()), data != Self.lastSaved else { return }
         try? FileManager.default.createDirectory(at: SessionState.url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
-        try? data.write(to: SessionState.url, options: .atomic)
+        // Remember it only once written, so a failed write is retried (at the latest on quit).
+        if (try? data.write(to: SessionState.url, options: .atomic)) != nil { Self.lastSaved = data }
     }
 
     /// The command typed into an agent pane on relaunch, unless resuming that agent is turned off.
@@ -91,6 +93,8 @@ extension MainWindowController {
     /// Rebuilds saved tabs; returns false when there was nothing to restore.
     func restore(_ state: SessionState) -> Bool {
         guard !state.tabs.isEmpty else { return false }
+        Self.restoring = true
+        defer { Self.restoring = false }
         var ratios: [(NSSplitView, Double)] = []
         let groups = Dictionary((state.groups ?? []).map {
             ($0.id, TabGroup(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed))
@@ -107,17 +111,19 @@ extension MainWindowController {
             build(second, in: new, ws)
         }
 
+        var selectedTab: Workspace?
         for (i, tab) in state.tabs.enumerated() {
             let leaf = tab.firstPane
             guard let ws = newWorkspace(cwd: leaf.agent?.cwd ?? leaf.cwd, initialInput: Self.resumeInput(leaf.agent)),
                   let pane = ws.panes.first else { continue }
+            if i == state.selected { selectedTab = ws } // by saved index: a tab that failed to open shifts the rest
             build(tab, in: pane, ws)
             ws.customTitle = state.titles?[safe: i] ?? nil
             ws.labels = state.labels?[safe: i] ?? []
             ws.group = (state.tabGroups?[safe: i] ?? nil).flatMap { groups[$0] }
         }
         let collapsed = groups.values.filter(\.collapsed)
-        if workspaces.indices.contains(state.selected) { select(workspaces[state.selected]) }
+        if let selectedTab { select(selectedTab) }
         collapsed.forEach { $0.collapsed = true } // selecting a tab expands its group; keep saved collapses
         if let sel = selected, sel.group?.collapsed == true { sel.group?.collapsed = false }
         metadataChanged()

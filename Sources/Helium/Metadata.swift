@@ -10,11 +10,16 @@ struct ProcessTree {
     init() {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return }
-        // Headroom for processes spawned between the two calls.
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + 16)
-        size = procs.count * MemoryLayout<kinfo_proc>.stride
-        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return }
+        var procs: [kinfo_proc] = []
+        // Processes spawned between the two calls overflow the buffer (ENOMEM); retry with more headroom,
+        // because an empty tree would look like every agent quit.
+        for headroom in [16, 256, 4096] {
+            guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return }
+            procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + headroom)
+            size = procs.count * MemoryLayout<kinfo_proc>.stride
+            if sysctl(&mib, 4, &procs, &size, nil, 0) == 0 { break }
+            guard errno == ENOMEM, headroom != 4096 else { return }
+        }
         for p in procs.prefix(size / MemoryLayout<kinfo_proc>.stride) {
             let pid = p.kp_proc.p_pid
             children[p.kp_eproc.e_ppid, default: []].append(pid)
@@ -36,6 +41,56 @@ struct ProcessTree {
 }
 
 enum Metadata {
+    struct GitStatus: Equatable { var ahead = 0, behind = 0, dirty = false }
+
+    /// Ahead/behind and dirty state. The one exception to "no subprocesses": the owner asked for it, so it runs
+    /// only for the selected tab, off the main thread. Nil when git fails or takes over 2 s.
+    static func gitStatus(_ dir: String) -> GitStatus? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        // No optional locks: never contend for index.lock with an agent's own git commands.
+        p.arguments = ["--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        let timer = DispatchWorkItem { p.terminate() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: timer)
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        timer.cancel()
+        guard p.terminationStatus == 0 else { return nil }
+        return parseGitStatus(String(decoding: data, as: UTF8.self))
+    }
+
+    /// Parses `git status --porcelain=v2 --branch`: "# branch.ab +A -B", and any non-header line means dirty.
+    static func parseGitStatus(_ s: String) -> GitStatus {
+        var st = GitStatus()
+        for line in s.split(separator: "\n") {
+            if line.hasPrefix("# branch.ab ") {
+                let parts = line.split(separator: " ")
+                if parts.count == 4 {
+                    st.ahead = Int(parts[2].dropFirst()) ?? 0
+                    st.behind = Int(parts[3].dropFirst()) ?? 0
+                }
+            } else if !line.hasPrefix("#") {
+                st.dirty = true
+            }
+        }
+        return st
+    }
+
+    /// The titlebar strip's sections, shown with separators between them:
+    /// "⎇ main", "↑2 ahead  ↓1 behind", "● uncommitted changes".
+    static func branchParts(_ branch: String, _ st: GitStatus?) -> [String] {
+        var parts = ["⎇ " + branch]
+        guard let st else { return parts }
+        let sync = (st.ahead > 0 ? ["↑\(st.ahead) ahead"] : []) + (st.behind > 0 ? ["↓\(st.behind) behind"] : [])
+        if !sync.isEmpty { parts.append(sync.joined(separator: "  ")) }
+        if st.dirty { parts.append("● uncommitted changes") }
+        return parts
+    }
     /// Current branch from .git/HEAD (or the short commit when detached), found by walking up from `dir`.
     static func gitBranch(_ dir: String) -> String? {
         var url = URL(fileURLWithPath: dir)

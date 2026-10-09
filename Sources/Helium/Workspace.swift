@@ -24,7 +24,7 @@ final class PaneView: NSView {
 
     private func updateRing() {
         ring.isHidden = !ringing && !waiting
-        ring.layer?.borderColor = (waiting ? NSColor.systemOrange : NSColor.systemBlue).cgColor
+        ring.layer?.borderColor = (waiting ? NSColor.systemOrange : NSColor.systemGreen).cgColor
     }
 
     func userTyped() {
@@ -80,7 +80,9 @@ final class PaneView: NSView {
     }
 
     func focusChanged(_ surface: SurfaceView) {
-        ringing = false
+        // Programmatic focus while Helium is in the background isn't the user seeing the pane;
+        // windowDidBecomeKey clears it when they come back.
+        if surface.window?.isKeyWindow == true, NSApp.isActive { ringing = false }
         workspace?.focused = self
         workspace?.onChange?()
     }
@@ -92,7 +94,7 @@ private final class RingView: NSView {
         wantsLayer = true
         layer?.borderWidth = 2
         layer?.cornerRadius = 4
-        layer?.borderColor = NSColor.systemBlue.cgColor
+        layer?.borderColor = NSColor.systemGreen.cgColor
     }
     required init?(coder: NSCoder) { fatalError("not used") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -107,6 +109,8 @@ final class Workspace {
     weak var focused: PaneView?
     var notification: String?
     var branch: String?
+    /// Only kept for the selected tab (see Metadata.gitStatus).
+    var gitStatus: Metadata.GitStatus?
     var ports: [Int] = []
     var onChange: (() -> Void)?
 
@@ -216,6 +220,8 @@ final class Workspace {
             split.removeFromSuperview()
         } else {
             split.removeFromSuperview()
+            // NSSplitView turned this off; without it Auto Layout collapses the survivor to zero width (a blank tab).
+            survivor.translatesAutoresizingMaskIntoConstraints = true
             parent.addSubview(survivor)
         }
     }

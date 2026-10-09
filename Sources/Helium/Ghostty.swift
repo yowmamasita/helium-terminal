@@ -60,10 +60,11 @@ final class Ghostty {
         // Reads the user's Ghostty config, so themes, fonts and keybinds carry over.
         let cfg = ghostty_config_new()
         ghostty_config_load_default_files(cfg)
+        ghostty_config_load_recursive_files(cfg)
+        // Last, so Settings win over the user's Ghostty config and the files it includes.
         if FileManager.default.fileExists(atPath: heliumConfigPath) {
             ghostty_config_load_file(cfg, heliumConfigPath)
         }
-        ghostty_config_load_recursive_files(cfg)
         ghostty_config_finalize(cfg)
         return cfg
     }
@@ -165,7 +166,7 @@ final class Ghostty {
         _ ud: UnsafeMutableRawPointer?, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
         _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e
     ) {
-        guard let surface = SurfaceView.from(ud)?.surface else { return }
+        guard let view = SurfaceView.from(ud), view.surface != nil else { return }
         // Copy the borrowed text now; the alert runs after this callback returns.
         var text: String?
         if let c = confirm?.pointee, let contents = c.contents {
@@ -180,7 +181,10 @@ final class Ghostty {
             alert.informativeText = String((text ?? "").prefix(500))
             alert.addButton(withTitle: "Allow")
             alert.addButton(withTitle: "Deny")
-            if alert.runModal() == .alertFirstButtonReturn {
+            let allowed = alert.runModal() == .alertFirstButtonReturn
+            // The pane may have closed (and its surface been freed) while the alert was up.
+            guard let surface = view.surface else { return }
+            if allowed {
                 complete(surface, text: text, available: false, state: state, confirmed: true)
             } else {
                 ghostty_surface_deny_clipboard_request(surface, state)

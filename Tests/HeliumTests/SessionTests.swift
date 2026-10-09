@@ -86,4 +86,36 @@ final class SessionTests: XCTestCase {
         XCTAssertTrue(SettingsWindow.scrollMultipliers("2") == (2, 2))
         XCTAssertTrue(SettingsWindow.scrollMultipliers("") == (1, 3))
     }
+
+    func testFlagValuesWithSpacesAreKept() {
+        // A spaced value after an option that takes text is that option's value, not an initial prompt.
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--allowedTools", "Bash(git *)", "fix it"]),
+                       ["--allowedTools", "Bash(git *)"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--verbose", "fix it"]), ["--verbose"])
+    }
+
+    func testTemplateIsFilledInOnePass() {
+        let s = AgentSession(kind: .claude, sessionID: "abc", cwd: "/x y", flags: ["--settings", "{cwd}"])
+        XCTAssertEqual(s.resumeCommand(template: "cd {cwd} && claude {flags} -r {id} {unknown}"),
+                       "cd '/x y' && claude --settings '{cwd}' -r abc {unknown}")
+        XCTAssertEqual(AgentSession.shellQuote("=ls"), "'=ls'")
+        XCTAssertEqual(AgentSession.shellQuote("a=b"), "a=b")
+    }
+
+    func testGitStatusParsingAndBranchLine() throws {
+        let clean = Metadata.parseGitStatus("# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -1\n")
+        XCTAssertEqual(clean, .init(ahead: 2, behind: 1, dirty: false))
+        XCTAssertEqual(Metadata.parseGitStatus("# branch.head main\n1 .M N... 100644 100644 100644 a b f.swift\n"),
+                       .init(ahead: 0, behind: 0, dirty: true)) // no upstream, so no branch.ab line
+        XCTAssertEqual(Metadata.parseGitStatus("# branch.ab +0 -0\n? new.txt\n").dirty, true)
+        XCTAssertEqual(Metadata.branchParts("main", clean), ["⎇ main", "↑2 ahead  ↓1 behind"])
+        XCTAssertEqual(Metadata.branchParts("main", .init(ahead: 0, behind: 3, dirty: true)),
+                       ["⎇ main", "↓3 behind", "● uncommitted changes"])
+        XCTAssertEqual(Metadata.branchParts("main", .init()), ["⎇ main"])
+        XCTAssertEqual(Metadata.branchParts("main", nil), ["⎇ main"])
+
+        // The real thing, on this repo: it must not fail and must report a status.
+        XCTAssertNotNil(Metadata.gitStatus(FileManager.default.currentDirectoryPath))
+        XCTAssertNil(Metadata.gitStatus("/"))
+    }
 }

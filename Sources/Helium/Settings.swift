@@ -92,8 +92,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         window.setFrameAutosaveName("HeliumSettings")
 
         let tabs = NSTabView()
+        tabs.addTabViewItem(item("General", generalTab()))
         tabs.addTabViewItem(item("Terminal", terminalTab()))
-        tabs.addTabViewItem(item("Helium", heliumTab()))
         tabs.addTabViewItem(item("All Options", allOptionsTab()))
         window.contentView = tabs
     }
@@ -101,25 +101,33 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     func show() {
-        if window?.isVisible != true { window?.center() }
-        refresh()
+        // Refreshing an open window would rebuild the form under an edit in progress.
+        if window?.isVisible != true { window?.center(); refresh() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func refresh() {
+    private func refresh(form: Bool = true) {
         // +show-config is a subprocess (~0.1 s); keep the UI responsive while it runs.
         let docs = docsToggle.state == .on
         DispatchQueue.global(qos: .userInitiated).async {
-            let values = HeliumConfig.effectiveValues()
+            let values = form ? HeliumConfig.effectiveValues() : [:]
             let all = HeliumConfig.showConfig(docs: docs)
             DispatchQueue.main.async {
+                self.allText.string = all
+                guard form else { return }
+                // Typing started before the values arrived: keep the edit rather than rebuild under it.
+                if let editor = self.window?.firstResponder as? NSTextView, let field = editor.delegate as? NSView,
+                   field.isDescendant(of: self.terminalGrid) { return }
                 self.values = values
                 self.rebuildTerminalGrid()
-                self.allText.string = all
             }
         }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window?.makeFirstResponder(nil) // commits a field still being edited
     }
 
     private func item(_ label: String, _ view: NSView) -> NSTabViewItem {
@@ -135,6 +143,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         terminalGrid.rowSpacing = 10
         terminalGrid.columnSpacing = 12
         terminalGrid.translatesAutoresizingMaskIntoConstraints = false
+        // Hug the controls; otherwise the grid fills the tab and the label column takes the slack.
+        terminalGrid.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
         let note = label("Saved to Helium's config file, which overrides your Ghostty config. "
                          + "Clear a field to go back to the Ghostty value. Changes apply to open terminals.", secondary: true)
@@ -153,6 +163,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
     private func rebuildTerminalGrid() {
         while terminalGrid.numberOfRows > 0 { terminalGrid.removeRow(at: 0) }
+        // removeRow keeps the row's views as subviews; without this, reopening Settings stacks old controls.
+        terminalGrid.subviews.forEach { $0.removeFromSuperview() }
         let fonts = Array(Set((NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? [])
             .compactMap { NSFont(name: $0, size: 12)?.familyName })).sorted()
         rowText("Font family", "font-family", placeholder: "JetBrains Mono (built in)", suggestions: fonts)
@@ -176,6 +188,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         ])
         rowChoice("Copy on select", "copy-on-select", [
             .init(title: "Off", value: "none"), .init(title: "To clipboard", value: "clipboard"),
+            .init(title: "To clipboard and selection", value: "both"),
         ])
         rowChoice("Hide mouse while typing", "mouse-hide-while-typing", [
             .init(title: "Off", value: "false"), .init(title: "On", value: "true"),
@@ -218,7 +231,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         readout.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         if scrollSliders.count > tag { scrollSliders[tag] = slider; scrollLabels[tag] = readout; scrollFormat[tag] = format }
         else { scrollSliders.append(slider); scrollLabels.append(readout); scrollFormat.append(format) }
-        terminalGrid.addRow(with: [label(title + ":"), NSStackView(views: [slider, readout])])
+        terminalGrid.addRow(with: [rowLabel(title), NSStackView(views: [slider, readout])])
     }
 
     @objc private func scrollChanged(_ sender: NSSlider) {
@@ -244,11 +257,12 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         }
         field.placeholderString = placeholder
         field.stringValue = values[key] ?? ""
+        field.cell?.sendsActionOnEndEditing = true // Tab, a click elsewhere or closing saves too, not only Return
         field.widthAnchor.constraint(equalToConstant: 280).isActive = true
         field.target = self
         field.action = #selector(textChanged(_:))
         field.identifier = NSUserInterfaceItemIdentifier([key, alsoKey].compactMap { $0 }.joined(separator: ","))
-        terminalGrid.addRow(with: [label(title + ":"), field])
+        terminalGrid.addRow(with: [rowLabel(title), field])
     }
 
     private func rowChoice(_ title: String, _ key: String, _ choices: [Choice]) {
@@ -264,13 +278,17 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         popup.target = self
         popup.action = #selector(choiceChanged(_:))
         popup.identifier = NSUserInterfaceItemIdentifier(key)
-        terminalGrid.addRow(with: [label(title + ":"), popup])
+        terminalGrid.addRow(with: [rowLabel(title), popup])
     }
 
     @objc private func textChanged(_ sender: NSTextField) {
         let value = sender.stringValue.trimmingCharacters(in: .whitespaces)
-        for key in (sender.identifier?.rawValue ?? "").split(separator: ",") {
-            HeliumConfig.set(String(key), value)
+        let keys = (sender.identifier?.rawValue ?? "").split(separator: ",").map(String.init)
+        // Leaving a field unchanged also sends this; don't rewrite the config and reload every terminal.
+        guard let first = keys.first, value != values[first] ?? "" else { return }
+        for key in keys {
+            HeliumConfig.set(key, value)
+            values[key] = value
         }
         Ghostty.shared.reloadConfig()
     }
@@ -303,13 +321,13 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
-    // MARK: Helium
+    // MARK: General
 
-    private func heliumTab() -> NSView {
+    private func generalTab() -> NSView {
         let width = NSSlider(value: currentSidebarWidth(), minValue: 160, maxValue: 520,
                              target: self, action: #selector(sidebarWidthChanged(_:)))
         width.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        let grid = NSGridView(views: [[label("Sidebar width:"), width]])
+        let grid = NSGridView(views: [[rowLabel("Sidebar width"), width]])
         grid.column(at: 0).xPlacement = .trailing
         grid.columnSpacing = 12
 
@@ -348,6 +366,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         NotificationCenter.default.addObserver(forName: .heliumUpdaterChanged, object: nil, queue: .main) {
             [weak self] _ in self?.showUpdateState()
         }
+        if Updater.shared.unavailableReason == nil { showUpdateState() } // the updater may already be ready
 
         let stack = NSStackView(views: [grid, sessionRestoreSection(), updates, behavior])
         stack.orientation = .vertical
@@ -385,6 +404,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             field.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
             field.target = self
             field.action = #selector(templateChanged(_:))
+            field.cell?.sendsActionOnEndEditing = true
             field.isEnabled = toggle.state == .on
             agentControls += [toggle, field]
             grid.addRow(with: [toggle, field])
@@ -489,9 +509,14 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         return v
     }
 
-    @objc private func docsToggled() { refresh() }
+    @objc private func docsToggled() { refresh(form: false) }
 
     // MARK: Helpers
+
+    /// Grid row labels don't wrap, so the label column sizes to its longest title.
+    private func rowLabel(_ title: String) -> NSTextField {
+        NSTextField(labelWithString: title + ":")
+    }
 
     private func label(_ s: String, secondary: Bool = false) -> NSTextField {
         let l = NSTextField(wrappingLabelWithString: s)

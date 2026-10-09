@@ -40,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard controller?.window?.isVisible == true, Ghostty.shared.needsConfirmQuit else { return .terminateNow }
+        // Not window.isVisible: a minimized window or hidden app still has running processes.
+        guard controller?.workspaces.isEmpty == false, Ghostty.shared.needsConfirmQuit else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "Quit Helium?"
         alert.informativeText = "Processes are still running."
@@ -94,7 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let c = controller else { return ["ok": false, "error": "not ready"] }
         let arg = req["arg"] as? String
         func int(_ k: String) -> Int? { (req[k] as? String).flatMap { Int($0) } ?? req[k] as? Int }
-        let target = int("pane").flatMap(c.pane(id:)) ?? c.selected?.focusedPane
+        // A pane that was named but is gone (a stale $HELIUM_PANE) means no target, never the user's focused pane.
+        let paneNamed = !"\(req["pane"] ?? "")".isEmpty
+        let target = paneNamed ? int("pane").flatMap(c.pane(id:)) : c.selected?.focusedPane
 
         switch req["cmd"] as? String {
         case "list":
@@ -118,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             else { return ["ok": false, "error": "no such tab"] }
             c.select(ws)
         case "split":
-            guard let p = target else { return ["ok": false, "error": "no pane"] }
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
             let before = Set(p.workspace?.panes.map(\.surface.id) ?? [])
             c.split(p.surface, arg == "down" ? GHOSTTY_SPLIT_DIRECTION_DOWN : GHOSTTY_SPLIT_DIRECTION_RIGHT)
             let new = p.workspace?.panes.first { !before.contains($0.surface.id) }
@@ -129,14 +132,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ws.focused = p
             c.select(ws)
         case "send":
-            guard let p = target, let arg else { return ["ok": false, "error": "need a pane and text"] }
+            guard let p = target, let arg else { return ["ok": false, "error": "need an existing pane and text"] }
             p.surface.type(arg)
         case "notify":
-            guard let p = target else { return ["ok": false, "error": "no pane"] }
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
             let text = [req["title"] as? String, arg].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ": ")
             c.notify(p.surface, text: text)
         case "close":
-            guard let p = target else { return ["ok": false, "error": "no pane"] }
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
             c.requestClose(p.surface, processAlive: false)
         default:
             return ["ok": false, "error": "unknown command; run `helium help`"]

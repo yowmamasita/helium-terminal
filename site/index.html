@@ -75,7 +75,7 @@
   .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   .pill { display: inline-block; font-size: 0.72rem; font-weight: 700; border-radius: 5px; padding: 1px 7px; vertical-align: 2px; }
   .pill.orange { background: var(--orange); color: #fff; }
-  .pill.blue { background: #0a84ff; color: #fff; }
+  .pill.green { background: #30d158; color: #000; }
 
   table { width: 100%; border-collapse: collapse; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
   th, td { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--border); }
@@ -127,11 +127,11 @@
   <div class="grid">
     <div class="card">
       <h3>Tabs that tell you what's happening</h3>
-      <p>Vertical tabs show each terminal's git branch, folder, listening ports and latest notification, refreshed in the background without running a single command.</p>
+      <p>Vertical tabs show each terminal's title, folder and listening ports, refreshed in the background. Above the terminal: the git branch, how far it is ahead or behind, and whether there are uncommitted changes.</p>
     </div>
     <div class="card">
       <h3><span class="pill orange">needs input</span> when an agent is blocked</h3>
-      <p>Permission prompts and approval requests from Claude Code and Codex light the pane up in orange until you answer. Everything else gets a quiet <span class="pill blue">blue</span> ring.</p>
+      <p>Permission prompts and approval requests from Claude Code and Codex light the pane and its tab up in orange until you answer. Everything else gets a quiet <span class="pill green">green</span> ring.</p>
     </div>
     <div class="card">
       <h3>Quit without losing your agents</h3>
@@ -167,12 +167,12 @@
     <thead><tr><th></th><th>Helium</th><th>iTerm2 3.7</th></tr></thead>
     <tbody>
       <tr><td>App size</td><td class="num win">15 MB</td><td class="num">176 MB</td></tr>
-      <tr><td>Launch until the window appears</td><td class="num win">~250 ms</td><td class="num">~590 ms</td></tr>
-      <tr><td>Idle memory, one terminal</td><td class="num win">88 MB</td><td class="num">204 MB</td></tr>
-      <tr><td>Idle CPU</td><td class="num win">0.2%</td><td class="num">2.2%</td></tr>
+      <tr><td>Launch until the window appears</td><td class="num win">~250 ms</td><td class="num">~570 ms</td></tr>
+      <tr><td>Idle memory, one terminal</td><td class="num win">62 MB</td><td class="num">203 MB</td></tr>
+      <tr><td>Idle CPU</td><td class="num win">0.1 to 0.3%</td><td class="num">1.9 to 2.4%</td></tr>
     </tbody>
   </table>
-  <p class="note">Medians of five launches. iTerm2's memory includes its session server. A covered or minimized Helium window drops to about 60 MB and 0.1% CPU. The script is <a href="https://github.com/yowmamasita/helium-terminal/tree/main/bench">in the repo</a>.</p>
+  <p class="note">Medians of five launches. iTerm2's memory includes its session server. A covered or minimized Helium window stops rendering and frees its GPU buffers. The script is <a href="https://github.com/yowmamasita/helium-terminal/tree/main/bench">in the repo</a>.</p>
 </section>
 
 <section id="install">

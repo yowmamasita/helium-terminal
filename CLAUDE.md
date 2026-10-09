@@ -21,7 +21,9 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
 
 - **libghostty** comes from `vendor/ghostty` at the commit in `vendor.lock`, with `patches/` applied by
   `scripts/build-ghostty.sh`. It's built ReleaseFast (ReleaseSmall saves 3 MB but parses escape-heavy output about
-  40% slower), with `-Dsentry=false -Di18n=false`. The renderer is patched to double buffering.
+  40% slower), with `-Dsentry=false -Di18n=false`. The renderer is patched to double buffering, and the swap chain surface that
+  isn't on screen is marked purgeable (volatile) between frames, which takes about 26 MB off idle memory for a
+  full-screen window. Every frame is a full redraw, so a reclaimed surface loses nothing.
 - **Ghostty themes aren't bundled** (2.6 MB). Users put themes in `~/.config/ghostty/themes`.
 - **Config:** the user's Ghostty config loads first, then `~/Library/Application Support/helium-terminal/config`,
   which Settings writes. Never rewrite the user's Ghostty config; it may be shared with Ghostty.app.
@@ -32,10 +34,11 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   frees GPU buffers. Don't treat a window as occluded before its first show.
 - **Content scale:** comes from `window.backingScaleFactor`, never a frame ratio, because the first tab starts at
   zero size.
-- **Two kinds of notification:** blue (ring, dot, message text; cleared by focusing the pane) for news, and
-  orange (ring plus a "needs input" badge; cleared only by typing in that pane) when an agent is blocked on the
-  user. `Workspace.isWaitingForInput` decides by phrase. Sidebar rows size to their content; notification text
-  wraps to the real sidebar width.
+- **Two kinds of notification:** green (ring and a green right edge on the row; cleared by focusing the pane) for
+  news, and orange (ring and an orange right edge; cleared only by typing in that pane) when an agent is blocked
+  on the user. `Workspace.isWaitingForInput` decides by phrase. Sidebar rows are always two lines (title with
+  labels, cwd with ports) so every row is the same height; the notification text is the row's tooltip. The
+  selected tab's branch is shown in the titlebar strip above the terminal.
 - **Session restore:** on ⌘Q and every metadata poll, tabs, splits (with ratios), folders and running agents are
   saved to `state.json`; launch rebuilds them and types each agent's resume command via `initial_input`.
   Claude's session ID comes from `~/.claude/sessions/<pid>.json` (undocumented, read defensively), Codex's from
@@ -51,7 +54,9 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   "Close Tab and Delete Group?" only when the user closed it (`processExited` is false); a shell exiting just
   drops the group. Saved in `state.json` as optional `groups` and `tabGroups`.
 - **Sidebar metadata** is polled every 3 s from `.git/HEAD` reads and libproc (`ProcessTree`). It never runs a
-  subprocess.
+  subprocess, with one exception the owner approved: `git status --porcelain=v2 --branch` (with
+  `--no-optional-locks`) for the selected tab only, off the main thread, while the window is visible, for the
+  ahead/behind counts and the dirty dot in the titlebar strip.
 - **Socket API:** one JSON object per line, file mode 0600. A second instance must never take over or delete a
   live socket. `$HELIUM_PANE` is set in every pane. `helium +action` passes through to libghostty CLI actions
   (for example `+show-config --docs`).

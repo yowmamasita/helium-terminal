@@ -11,6 +11,7 @@ final class SocketServer {
     }
 
     private var fd: Int32 = -1
+    private var listening = false // only then is the socket file ours to delete
     private var source: DispatchSourceRead?
     private let io = DispatchQueue(label: "helium.socket")
     private let handler: ([String: Any]) -> [String: Any]
@@ -30,6 +31,8 @@ final class SocketServer {
 
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
+        var bound = false
+        defer { if !bound { close(fd); fd = -1 } }
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: addr.sun_path) else { throw POSIXError(.ENAMETOOLONG) }
@@ -41,7 +44,9 @@ final class SocketServer {
         }
         guard ok == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         chmod(path, 0o600)
-        guard listen(fd, 16) == 0 else { throw POSIXError(.EIO) }
+        guard listen(fd, 16) == 0 else { unlink(path); throw POSIXError(.EIO) }
+        bound = true
+        listening = true
 
         let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: io)
         src.setEventHandler { [weak self] in self?.accept() }
@@ -50,7 +55,8 @@ final class SocketServer {
     }
 
     func stop() {
-        guard fd >= 0 else { return } // never started, so the socket file isn't ours
+        guard listening else { return } // never started, so the socket file isn't ours
+        listening = false
         source?.cancel()
         close(fd)
         unlink(Self.path)
@@ -77,6 +83,7 @@ final class SocketServer {
         // A stuck client must not hold up the queue.
         var tv = timeval(tv_sec: 2, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
         var data = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
@@ -86,6 +93,7 @@ final class SocketServer {
             data.append(contentsOf: buf[0..<n])
         }
         if data.isEmpty { return } // e.g. a liveness probe that connected and left
+        if let nl = data.firstIndex(of: 0x0A) { data = data[..<nl] } // one request per connection
         let reply: [String: Any]
         if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             reply = DispatchQueue.main.sync { handler(obj) }
@@ -113,6 +121,7 @@ enum CLI {
       close [--pane ID]                      close a pane
 
     --pane defaults to $HELIUM_PANE (the pane the command runs in), else the focused pane.
+    A pane that no longer exists is an error, never the focused pane.
     """
 
     static func run(_ args: [String]) -> Int32 {

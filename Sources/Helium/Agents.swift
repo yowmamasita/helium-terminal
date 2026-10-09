@@ -21,10 +21,23 @@ struct AgentSession: Codable, Equatable {
         var t = template
         // With no flags, take the placeholder's separating space with it instead of leaving a gap.
         if flags.isEmpty { t = t.replacingOccurrences(of: " {flags}", with: "").replacingOccurrences(of: "{flags} ", with: "") }
-        return t
-            .replacingOccurrences(of: "{id}", with: Self.shellQuote(sessionID))
-            .replacingOccurrences(of: "{flags}", with: flags.map(Self.shellQuote).joined(separator: " "))
-            .replacingOccurrences(of: "{cwd}", with: Self.shellQuote(cwd ?? "."))
+        let values = ["{id}": Self.shellQuote(sessionID), "{flags}": flags.map(Self.shellQuote).joined(separator: " "),
+                      "{cwd}": Self.shellQuote(cwd ?? ".")]
+        // One pass, so a placeholder inside a substituted value (a flag containing "{cwd}") stays literal.
+        var out = ""
+        var rest = Substring(t)
+        while let open = rest.firstIndex(of: "{") {
+            out += rest[..<open]
+            rest = rest[open...]
+            if let (key, value) = values.first(where: { rest.hasPrefix($0.key) }) {
+                out += value
+                rest = rest.dropFirst(key.count)
+            } else {
+                out += "{"
+                rest = rest.dropFirst()
+            }
+        }
+        return out + rest
     }
 
     static func defaultTemplate(for kind: Kind) -> String {
@@ -50,7 +63,8 @@ struct AgentSession: Codable, Equatable {
 
     static func shellQuote(_ s: String) -> String {
         let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:@,+%")
-        if !s.isEmpty, s.unicodeScalars.allSatisfy(safe.contains) { return s }
+        // A leading "=" is zsh's command-path expansion, so it needs quoting too.
+        if !s.isEmpty, !s.hasPrefix("="), s.unicodeScalars.allSatisfy(safe.contains) { return s }
         return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
@@ -62,6 +76,11 @@ struct AgentSession: Codable, Equatable {
             ? ["-r", "--resume", "--session-id", "--from-pr"] : ["resume", "fork"]
         let dropAlone: Set<String> = kind == .claude
             ? ["-c", "--continue", "--fork-session"] : ["--last"]
+        // Options whose values often contain spaces; such a value isn't an initial prompt.
+        let takesText: Set<String> = kind == .claude
+            ? ["--allowedTools", "--allowed-tools", "--disallowedTools", "--disallowed-tools", "--system-prompt",
+               "--append-system-prompt", "--add-dir", "--mcp-config", "--settings", "--agents", "--model"]
+            : ["-c", "--config", "-m", "--model"]
         var out: [String] = []
         var i = 0
         while i < args.count {
@@ -74,7 +93,7 @@ struct AgentSession: Codable, Equatable {
                 let next = i + 1 < args.count ? args[i + 1] : nil
                 let takesNext = !a.contains("=") && next.map { !$0.hasPrefix("-") && !$0.contains(" ") } == true
                 i += takesNext ? 2 : 1
-            } else if !a.hasPrefix("-") && a.contains(where: \.isWhitespace) {
+            } else if !a.hasPrefix("-") && a.contains(where: \.isWhitespace), !(i > 0 && takesText.contains(args[i - 1])) {
                 i += 1 // initial prompt
             } else {
                 out.append(a)
@@ -122,6 +141,7 @@ enum Agents {
         guard let data = try? Data(contentsOf: url),
               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               obj["kind"] as? String ?? "interactive" == "interactive",
+              (obj["pid"] as? Int).map({ $0 == Int(pid) }) ?? true, // a leftover file from a reused pid
               let id = obj["sessionId"] as? String, !id.isEmpty else { return nil }
         return id
     }

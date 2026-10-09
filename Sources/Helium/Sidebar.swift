@@ -1,12 +1,14 @@
 import AppKit
 
-/// Vertical tab list: title, branch, cwd, ports and the latest notification per workspace.
+/// Vertical tab list: title, cwd, ports and the latest notification per workspace.
 final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     var onSelect: ((Workspace) -> Void)?
 
     private let stack = NSStackView()
     private var lastSignature = ""
-    private var editing = false
+    // Two separate freezes, so one ending can't unfreeze the other.
+    private var renaming = false
+    private var popoverOpen = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -89,7 +91,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     func update(_ workspaces: [Workspace], selected: Workspace?) {
         let rows = workspaces.enumerated().map { i, ws in
             Row.Model(ws: ws, index: i + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
-                      branch: ws.branch, ports: ws.ports, notification: ws.notification,
+                      ports: ws.ports, notification: ws.notification,
                       unread: ws.unread, waiting: ws.waiting, selected: ws === selected,
                       labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
         }
@@ -103,6 +105,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
                                                unread: members.contains { $0.unread }, waiting: members.contains { $0.waiting })
                 items.append((header.signature, { [weak self] in
                     let h = GroupHeader(header, actions: self?.actions)
+                    h.sidebar = self
                     self?.headers[g.id] = h
                     return h
                 }))
@@ -112,21 +115,25 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             items.append((model.signature, { [weak self] in
                 let row = Row(model) { [weak self] in self?.onSelect?(model.ws) }
                 row.actions = self?.actions
+                row.sidebar = self
                 row.onEditing = { [weak self] on in
-                    self?.editing = on
-                    if !on { self?.lastSignature = ""; model.ws.onChange?() }
+                    self?.renaming = on
+                    // Rebuild on the next turn: the edit may be ending because another field is taking focus.
+                    if !on { self?.lastSignature = ""; DispatchQueue.main.async { model.ws.onChange?() } }
                 }
+                self?.rowViews[ObjectIdentifier(model.ws)] = row
                 return row
             }))
         }
         // The poll timer calls this every few seconds; skip rebuilding when nothing changed.
         let sig = items.map(\.sig).joined(separator: "\u{1}")
         // Rebuilding would throw away a title being edited; the end of editing triggers an update.
-        guard sig != lastSignature, !editing else { return }
+        guard sig != lastSignature, !renaming, !popoverOpen else { return }
         lastSignature = sig
 
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         headers = [:]
+        rowViews = [:]
         for item in items {
             let v = item.make()
             stack.addArrangedSubview(v)
@@ -136,20 +143,35 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
 
     weak var actions: TabGroupActions?
     private var headers: [String: GroupHeader] = [:]
+    private var rowViews: [ObjectIdentifier: Row] = [:]
+
+    /// Starts renaming a tab on its current row; menus call this because their own row may have been rebuilt.
+    func rename(_ ws: Workspace) {
+        rowViews[ObjectIdentifier(ws)]?.beginEditing()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Row colors are resolved when a row is built; rebuild them for the new appearance.
+        lastSignature = ""
+        actions?.groupsChanged()
+    }
 
     /// Opens the "Name this group" popover on a group's header; the sidebar holds still while it's open.
     func editGroup(_ group: TabGroup) {
-        guard let header = headers[group.id] else { return }
+        guard !popoverOpen, let header = headers[group.id], let window = header.window else { return }
         let popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = GroupEditor(group: group) { [weak header] in header?.refresh() }
         popover.delegate = self
-        editing = true
+        window.layoutIfNeeded() // a header added this turn has no size yet to anchor to
         popover.show(relativeTo: header.bounds, of: header, preferredEdge: .maxX)
+        // Freeze only once it's up: a popover that never shows never closes, and the sidebar would stay frozen.
+        popoverOpen = popover.isShown
     }
 
     func popoverDidClose(_ notification: Notification) {
-        editing = false
+        popoverOpen = false
         lastSignature = ""
         actions?.groupsChanged()
     }
@@ -159,6 +181,10 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
     }
 }
+
+/// Menu items hold their target weakly, and the sidebar rebuilds whenever a title changes (an agent's spinner
+/// does this constantly), so the row or header that opened a menu is kept alive until the next menu opens.
+private var menuOwner: NSView?
 
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
@@ -170,7 +196,6 @@ private final class Row: NSView, NSTextFieldDelegate {
         let index: Int
         let title: String
         let cwd: String?
-        let branch: String?
         let ports: [Int]
         let notification: String?
         let unread: Bool
@@ -180,7 +205,7 @@ private final class Row: NSView, NSTextFieldDelegate {
         let group: TabGroup?
 
         var signature: String {
-            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(branch ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(waiting)|\(selected)|"
+            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(waiting)|\(selected)|"
                 + labels.map { $0.name + ":" + $0.color }.joined(separator: ",") + "|" + (group.map { $0.id + $0.color } ?? "")
         }
     }
@@ -191,6 +216,7 @@ private final class Row: NSView, NSTextFieldDelegate {
     private var cancelled = false
     var onEditing: ((Bool) -> Void)?
     weak var actions: TabGroupActions?
+    weak var sidebar: SidebarView?
 
     init(_ m: Model, onClick: @escaping () -> Void) {
         self.onClick = onClick
@@ -206,49 +232,21 @@ private final class Row: NSView, NSTextFieldDelegate {
         title.textColor = .labelColor
         title.lineBreakMode = .byTruncatingTail
         title.delegate = self
-        let dot = NSView()
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = 4
-        dot.layer?.backgroundColor = NSColor.systemBlue.cgColor
-        dot.isHidden = !m.unread
-        dot.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
-        let shortcut = Self.label(m.index <= 9 ? "⌘\(m.index)" : "", .systemFont(ofSize: 10), .tertiaryLabelColor)
-        let badge = Self.label("needs input", .systemFont(ofSize: 10, weight: .semibold), .white)
-        badge.drawsBackground = true
-        badge.backgroundColor = .systemOrange
-        badge.wantsLayer = true
-        badge.layer?.cornerRadius = 4
-        badge.layer?.masksToBounds = true
-        badge.setContentCompressionResistancePriority(.required, for: .horizontal)
-        badge.isHidden = !m.waiting
-        let head = NSStackView(views: [dot, title, NSView(), badge, shortcut])
-        head.spacing = 6
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let shortcut = Self.label(m.index <= 9 ? "⌘\(m.index)" : "", .systemFont(ofSize: 10), .tertiaryLabelColor)
+        let head = NSStackView(views: [title] + m.labels.map(Self.chip) + [NSView(), shortcut])
+        head.spacing = 6
 
-        var lines: [NSView] = [head]
-        if !m.labels.isEmpty {
-            let chips = NSStackView(views: m.labels.map(Self.chip))
-            chips.spacing = 4
-            lines.append(chips)
-        }
+        // Always two lines so every row is the same height; the branch is in the titlebar strip and
+        // the notification text is the tooltip.
         let small = NSFont.systemFont(ofSize: 11)
-        if let b = m.branch { lines.append(Self.label("⎇ " + b, small, .secondaryLabelColor)) }
-        if let c = m.cwd { lines.append(Self.label(c, small, .secondaryLabelColor, middle: true)) }
-        if !m.ports.isEmpty {
-            lines.append(Self.label(m.ports.map { ":\($0)" }.joined(separator: " "),
-                                    .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen))
-        }
-        if let n = m.notification {
-            let l = NSTextField(wrappingLabelWithString: n)
-            l.font = small
-            l.textColor = m.unread ? .systemBlue : .tertiaryLabelColor
-            l.cell?.truncatesLastVisibleLine = true
-            l.maximumNumberOfLines = 4
-            l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            notificationLabel = l
-            lines.append(l)
-        }
+        let ports = Self.label(m.ports.map { ":\($0)" }.joined(separator: " "),
+                               .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen)
+        ports.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let second = NSStackView(views: [Self.label(m.cwd ?? "", small, .secondaryLabelColor, middle: true), ports])
+        second.spacing = 6
+        let lines: [NSView] = [head, second]
+        toolTip = m.notification
 
         let v = NSStackView(views: lines)
         v.orientation = .vertical
@@ -278,23 +276,26 @@ private final class Row: NSView, NSTextFieldDelegate {
                 bar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             ])
         }
+        if m.waiting || m.unread {
+            // Orange: an agent is blocked on the user. Green: news. Shown as the row's right edge.
+            let edge = NSView()
+            edge.wantsLayer = true
+            edge.layer?.backgroundColor = (m.waiting ? NSColor.systemOrange : .systemGreen).cgColor
+            edge.layer?.cornerRadius = 1.5
+            edge.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(edge)
+            NSLayoutConstraint.activate([
+                edge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+                edge.widthAnchor.constraint(equalToConstant: 3),
+                edge.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+                edge.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            ])
+        }
         setAccessibilityRole(.button)
         setAccessibilityLabel(m.waiting ? "\(m.title), needs input" : m.title)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
-
-    private var notificationLabel: NSTextField?
-    private var contentInset: CGFloat { 16 }
-
-    override func layout() {
-        // Wrap the notification to the row's real width so its height matches its lines.
-        if let l = notificationLabel, bounds.width > contentInset,
-           l.preferredMaxLayoutWidth != bounds.width - contentInset {
-            l.preferredMaxLayoutWidth = bounds.width - contentInset
-        }
-        super.layout()
-    }
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 { beginEditing() } else { onClick() }
@@ -304,13 +305,14 @@ private final class Row: NSView, NSTextFieldDelegate {
 
     @objc func beginEditing() {
         cancelled = false
-        onEditing?(true)
         titleField.isEditable = true
         titleField.isSelectable = true
         titleField.drawsBackground = true
         titleField.backgroundColor = .textBackgroundColor
         titleField.stringValue = ws.customTitle ?? ws.title
-        window?.makeFirstResponder(titleField)
+        // Freeze the sidebar only if editing really began; otherwise it would never end and unfreeze.
+        guard window?.makeFirstResponder(titleField) == true, titleField.currentEditor() != nil else { return }
+        onEditing?(true)
         titleField.currentEditor()?.selectAll(nil)
     }
 
@@ -327,14 +329,17 @@ private final class Row: NSView, NSTextFieldDelegate {
             ws.customTitle = t.isEmpty ? nil : t // empty goes back to the automatic title
         }
         onEditing?(false)
-        onClick() // back to the terminal
+        // Back to the terminal only on Return or Esc; a click elsewhere already chose where focus goes.
+        let movement = obj.userInfo?["NSTextMovement"] as? Int
+        if cancelled || movement == NSTextMovement.return.rawValue { onClick() }
     }
 
     // MARK: Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        menuOwner = self
         let menu = NSMenu()
-        menu.addItem(withTitle: "Rename Tab", action: #selector(beginEditing), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Rename Tab", action: #selector(renameFromMenu), keyEquivalent: "").target = self
         if ws.customTitle != nil {
             menu.addItem(withTitle: "Use Automatic Title", action: #selector(clearTitle), keyEquivalent: "").target = self
         }
@@ -365,11 +370,11 @@ private final class Row: NSView, NSTextFieldDelegate {
         let others = (actions?.groups ?? []).filter { $0 !== ws.group }
         if !others.isEmpty {
             let sub = NSMenu()
-            for (i, g) in others.enumerated() {
-                let item = sub.addItem(withTitle: g.name.isEmpty ? "Unnamed group" : g.name,
+            for g in others {
+                let item = sub.addItem(withTitle: g.displayName,
                                        action: #selector(addToGroup(_:)), keyEquivalent: "")
                 item.target = self
-                item.tag = i
+                item.representedObject = g
                 item.image = Self.swatch(g.nsColor)
             }
             menu.addItem(withTitle: "Add Tab to Group", action: nil, keyEquivalent: "").submenu = sub
@@ -380,13 +385,14 @@ private final class Row: NSView, NSTextFieldDelegate {
         return menu
     }
 
+    @objc private func renameFromMenu() { sidebar?.rename(ws) }
     @objc private func addToNewGroup() { actions?.addToNewGroup(ws) }
     @objc private func removeFromGroup() { actions?.removeFromGroup(ws) }
 
     @objc private func addToGroup(_ sender: NSMenuItem) {
-        let others = (actions?.groups ?? []).filter { $0 !== ws.group }
-        guard others.indices.contains(sender.tag) else { return }
-        actions?.add(ws, to: others[sender.tag])
+        // The group may have gone away while the menu was open.
+        guard let g = sender.representedObject as? TabGroup, actions?.groups.contains(where: { $0 === g }) == true else { return }
+        actions?.add(ws, to: g)
     }
 
     @objc private func clearTitle() {
@@ -534,7 +540,7 @@ private final class GroupHeader: NSView {
             let dot = NSView()
             dot.wantsLayer = true
             dot.layer?.cornerRadius = 4
-            dot.layer?.backgroundColor = NSColor.systemBlue.cgColor
+            dot.layer?.backgroundColor = NSColor.systemGreen.cgColor
             dot.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
             views.append(dot)
@@ -550,7 +556,7 @@ private final class GroupHeader: NSView {
             h.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
         setAccessibilityRole(.button)
-        setAccessibilityLabel("Group \(m.group.name), \(m.count) tabs, \(m.group.collapsed ? "collapsed" : "expanded")")
+        setAccessibilityLabel("Group \(m.group.displayName), \(m.count) tabs, \(m.group.collapsed ? "collapsed" : "expanded")")
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -558,7 +564,7 @@ private final class GroupHeader: NSView {
     /// Re-reads the group's name and color (live while the editor popover is open).
     func refresh() {
         let g = model.group
-        pill.stringValue = g.name.isEmpty ? "   " : " \(g.name) "
+        pill.stringValue = " \(g.displayName) "
         pill.backgroundColor = g.nsColor
         pill.textColor = g.textColor
     }
@@ -570,6 +576,7 @@ private final class GroupHeader: NSView {
     override func accessibilityPerformPress() -> Bool { actions?.toggleCollapsed(model.group); return true }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        menuOwner = self
         let menu = NSMenu()
         menu.addItem(withTitle: "Edit Name and Color…", action: #selector(edit), keyEquivalent: "").target = self
         menu.addItem(withTitle: model.group.collapsed ? "Expand Group" : "Collapse Group",
@@ -581,11 +588,7 @@ private final class GroupHeader: NSView {
         return menu
     }
 
-    private var sidebar: SidebarView? {
-        var v = superview
-        while let s = v, !(s is SidebarView) { v = s.superview }
-        return v as? SidebarView
-    }
+    weak var sidebar: SidebarView?
 
     @objc private func edit() { sidebar?.editGroup(model.group) }
     @objc private func toggle() { actions?.toggleCollapsed(model.group) }

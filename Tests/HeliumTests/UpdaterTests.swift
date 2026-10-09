@@ -28,8 +28,11 @@ final class UpdaterTests: XCTestCase {
         let other = URL(fileURLWithPath: "/Applications/cmux.app")
         try XCTSkipUnless(FileManager.default.fileExists(atPath: other.path), "needs a notarized third-party app")
         let team = try XCTUnwrap(Updater.teamID(of: other))
-        XCTAssertTrue(Updater.verify(other, team: team))
-        XCTAssertFalse(Updater.verify(other, team: "7RX5G7H8DW"))
+        let id = try XCTUnwrap(Bundle(url: other)?.bundleIdentifier)
+        XCTAssertTrue(Updater.verify(other, team: team, identifier: id))
+        XCTAssertFalse(Updater.verify(other, team: "7RX5G7H8DW", identifier: id))
+        // The same team's other apps are rejected too: only Helium's bundle ID installs.
+        XCTAssertFalse(Updater.verify(other, team: team, identifier: "io.github.yowmamasita.helium-terminal"))
         // Ad-hoc builds have no team, so they never self-update.
         XCTAssertNil(Updater.teamID(of: URL(fileURLWithPath: "build/Helium Terminal.app")))
     }
