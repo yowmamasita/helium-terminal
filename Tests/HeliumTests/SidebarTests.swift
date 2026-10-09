@@ -56,4 +56,26 @@ final class SidebarTests: XCTestCase {
             XCTAssertFalse(Workspace.isWaitingForInput(text), text)
         }
     }
+
+    /// Renders an expanded and a collapsed group; HELIUM_SNAPSHOT_GROUPS=path writes a PNG.
+    func testGroupsRender() throws {
+        let api = TabGroup(name: "API", color: "Blue")
+        let infra = TabGroup(name: "Infra", color: "Green", collapsed: true)
+        let a = Workspace(); a.group = api; a.branch = "feat/oauth"
+        let b = Workspace(); b.group = api
+        let c = Workspace(); c.group = infra
+        let d = Workspace(); d.group = infra
+        let lone = Workspace()
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+        sidebar.appearance = NSAppearance(named: .darkAqua)
+        sidebar.update([a, b, c, d, lone], selected: a)
+        sidebar.layoutSubtreeIfNeeded()
+        // 2 headers + 2 API tabs + the ungrouped tab; Infra's tabs are collapsed away.
+        XCTAssertEqual(sidebar.rowHeights.count, 5)
+        if let out = ProcessInfo.processInfo.environment["HELIUM_SNAPSHOT_GROUPS"] {
+            let rep = try XCTUnwrap(sidebar.bitmapImageRepForCachingDisplay(in: sidebar.bounds))
+            sidebar.cacheDisplay(in: sidebar.bounds, to: rep)
+            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+        }
+    }
 }

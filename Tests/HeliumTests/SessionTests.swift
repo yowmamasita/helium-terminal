@@ -75,6 +75,8 @@ final class SessionTests: XCTestCase {
         var state = decoded
         state.titles = ["API work"]
         state.labels = [["urgent", "client"]]
+        state.groups = [.init(id: "g1", name: "API", color: "Blue", collapsed: true)]
+        state.tabGroups = ["g1"]
         XCTAssertEqual(try JSONDecoder().decode(SessionState.self, from: JSONEncoder().encode(state)), state)
     }
 }

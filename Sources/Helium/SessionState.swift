@@ -22,6 +22,16 @@ struct SessionState: Codable, Equatable {
     /// Per tab, parallel to `tabs`. Optional so older state files still load.
     var titles: [String?]? = nil
     var labels: [[String]]? = nil
+    var groups: [Group]? = nil
+    /// Per tab, the id of its group in `groups`.
+    var tabGroups: [String?]? = nil
+
+    struct Group: Codable, Equatable {
+        var id: String
+        var name: String
+        var color: String
+        var collapsed: Bool
+    }
 
     static var url: URL {
         // Overridable so test instances never touch the real state.
@@ -56,7 +66,9 @@ extension MainWindowController {
         let saved = workspaces.compactMap { ws in node(ws.root).map { (ws, $0) } }
         let selected = workspaces.firstIndex { $0 === self.selected } ?? 0
         return SessionState(tabs: saved.map(\.1), selected: selected,
-                            titles: saved.map(\.0.customTitle), labels: saved.map(\.0.labels))
+                            titles: saved.map(\.0.customTitle), labels: saved.map(\.0.labels),
+                            groups: groups.map { .init(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed) },
+                            tabGroups: saved.map(\.0.group?.id))
     }
 
     private static var lastSaved: Data?
@@ -80,6 +92,9 @@ extension MainWindowController {
     func restore(_ state: SessionState) -> Bool {
         guard !state.tabs.isEmpty else { return false }
         var ratios: [(NSSplitView, Double)] = []
+        let groups = Dictionary((state.groups ?? []).map {
+            ($0.id, TabGroup(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed))
+        }, uniquingKeysWith: { a, _ in a })
 
         func build(_ node: SessionState.Node, in pane: PaneView, _ ws: Workspace) {
             guard case let .split(vertical, ratio, first, second) = node, let app = Ghostty.shared.app else { return }
@@ -99,8 +114,13 @@ extension MainWindowController {
             build(tab, in: pane, ws)
             ws.customTitle = state.titles?[safe: i] ?? nil
             ws.labels = state.labels?[safe: i] ?? []
+            ws.group = (state.tabGroups?[safe: i] ?? nil).flatMap { groups[$0] }
         }
+        let collapsed = groups.values.filter(\.collapsed)
         if workspaces.indices.contains(state.selected) { select(workspaces[state.selected]) }
+        collapsed.forEach { $0.collapsed = true } // selecting a tab expands its group; keep saved collapses
+        if let sel = selected, sel.group?.collapsed == true { sel.group?.collapsed = false }
+        metadataChanged()
         // Split positions need real sizes, which exist only after the window lays out.
         DispatchQueue.main.async {
             for (split, ratio) in ratios {

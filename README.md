@@ -53,6 +53,13 @@ one. Right-click > Labels adds Gmail-style colored labels: tick any number per t
 (name and one of 12 colors), or delete one everywhere. Titles and labels are kept across quit and relaunch, and
 `helium list` reports each tab's labels.
 
+## Tab groups
+
+Like Chrome's: right-click a tab > Add Tab to New Group, then name it and pick a color. Click a group's header to
+collapse or expand it; a collapsed group still shows if one of its tabs needs you. Right-click a header to rename
+or recolor it, add a tab to it, ungroup it or close it. Closing the last tab of a group asks whether to delete the
+group (with Don't Ask Again). Groups are kept across quit and relaunch.
+
 ## Session restore
 
 Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Panes that were running

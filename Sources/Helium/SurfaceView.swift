@@ -90,6 +90,9 @@ final class SurfaceView: NSView, NSTextInputClient {
         surface.map { pid_t(truncatingIfNeeded: ghostty_surface_foreground_pid($0)) } ?? 0
     }
 
+    /// True once the shell has exited, i.e. a close that the user didn't ask for.
+    var processExited: Bool { surface.map { ghostty_surface_process_exited($0) } ?? true }
+
     var needsConfirmQuit: Bool { surface.map { ghostty_surface_needs_confirm_quit($0) } ?? false }
 
     func setVisible(_ visible: Bool) {

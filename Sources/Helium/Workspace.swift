@@ -152,6 +152,8 @@ final class Workspace {
     var customTitle: String?
     /// Names of Gmail-style labels (see LabelStore).
     var labels: [String] = []
+    /// Chrome-style tab group; a group's tabs are kept next to each other.
+    var group: TabGroup?
 
     var title: String {
         if let customTitle { return customTitle }

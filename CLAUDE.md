@@ -46,6 +46,10 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   `Workspace.labels`, names of shared labels in `LabelStore` (user defaults: name plus a palette color). Both are
   saved in `state.json` as optional fields so older state files still load. The sidebar skips rebuilds while a
   title is being edited.
+- **Tab groups (Chrome-style):** `Workspace.group` (a `TabGroup`); a group exists only while it has tabs, and
+  `regroup()` keeps its tabs contiguous. Selecting a tab expands its group. Closing a group's last tab asks
+  "Close Tab and Delete Group?" only when the user closed it (`processExited` is false); a shell exiting just
+  drops the group. Saved in `state.json` as optional `groups` and `tabGroups`.
 - **Sidebar metadata** is polled every 3 s from `.git/HEAD` reads and libproc (`ProcessTree`). It never runs a
   subprocess.
 - **Socket API:** one JSON object per line, file mode 0600. A second instance must never take over or delete a

@@ -24,6 +24,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         let container = ContainerView(sidebar: sidebar, content: content)
         window.contentView = container
         sidebar.onSelect = { [weak self] ws in self?.select(ws) }
+        sidebar.actions = self
 
         // Branch and port metadata changes outside the terminal, so poll it.
         // Only the cheap file and libproc reads in Metadata run here; no subprocesses.
@@ -55,6 +56,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func select(_ ws: Workspace) {
+        ws.group?.collapsed = false // like Chrome, activating a tab opens its group
         selected = ws
         for w in workspaces { w.root.isHidden = w !== ws }
         updateVisibility()
@@ -77,6 +79,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         guard let ws = view.pane?.workspace else { return }
         if ws.panes.contains(where: { $0.surface.needsConfirmQuit }),
            !confirm("Close this tab?", "A process is still running in it.") { return }
+        guard confirmDeletingGroup(closing: ws) else { return }
         ws.panes.forEach { close($0) }
     }
 
@@ -102,6 +105,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func requestClose(_ view: SurfaceView, processAlive: Bool) {
         guard let pane = view.pane else { return }
         if processAlive, !confirm("Close this pane?", "A process is still running in it.") { return }
+        // Closing the last pane closes the tab; ask about its group only when the user closed it.
+        if let ws = pane.workspace, ws.panes.count == 1, !view.processExited,
+           !confirmDeletingGroup(closing: ws) { return }
         close(pane)
     }
 
@@ -127,6 +133,53 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             if ws === selected, let f = ws.focused { window?.makeFirstResponder(f.surface) }
         }
         metadataChanged()
+    }
+
+    // MARK: Tab groups
+
+    /// Groups in sidebar order.
+    var groups: [TabGroup] {
+        var seen = Set<String>()
+        return workspaces.compactMap(\.group).filter { seen.insert($0.id).inserted }
+    }
+
+    /// Chrome's "Close Tab and Delete Group?" when `ws` is the last tab of its group. True means go ahead.
+    private func confirmDeletingGroup(closing ws: Workspace) -> Bool {
+        guard let g = ws.group, !workspaces.contains(where: { $0 !== ws && $0.group === g }),
+              UserDefaults.standard.object(forKey: "AskBeforeDeletingGroup") as? Bool ?? true else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Close Tab and Delete Group?"
+        alert.informativeText = g.name.isEmpty ? "This is the last tab in the group." : "This is the last tab in “\(g.name)”."
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't Ask Again"
+        alert.addButton(withTitle: "Delete Group")
+        alert.addButton(withTitle: "Cancel")
+        let ok = alert.runModal() == .alertFirstButtonReturn
+        if ok, alert.suppressionButton?.state == .on {
+            UserDefaults.standard.set(false, forKey: "AskBeforeDeletingGroup")
+        }
+        return ok
+    }
+
+    /// Keeps each group's tabs together, at the position of the group's first tab.
+    private func regroup() {
+        var out: [Workspace] = []
+        var emitted = Set<String>()
+        for ws in workspaces {
+            guard let g = ws.group else { out.append(ws); continue }
+            if emitted.insert(g.id).inserted { out += workspaces.filter { $0.group === g } }
+        }
+        workspaces = out
+        metadataChanged()
+    }
+
+    /// Moves `ws` to the end of `group`.
+    private func move(_ ws: Workspace, into group: TabGroup) {
+        workspaces.removeAll { $0 === ws }
+        ws.group = group
+        let last = workspaces.lastIndex { $0.group === group }
+        workspaces.insert(ws, at: last.map { $0 + 1 } ?? workspaces.count)
+        regroup()
     }
 
     func pane(id: Int) -> PaneView? {
@@ -298,4 +351,58 @@ private final class ResizeHandle: NSView {
     }
 
     override func mouseUp(with event: NSEvent) { onDragEnd?() }
+}
+
+extension MainWindowController: TabGroupActions {
+    func addToNewGroup(_ ws: Workspace) {
+        // Like Chrome, a new group takes the first color not already in use.
+        let used = Set(groups.map(\.color))
+        let g = TabGroup(color: TabGroup.colors.first { !used.contains($0.name) }?.name ?? "Blue")
+        move(ws, into: g)
+        sidebar.editGroup(g)
+    }
+
+    func add(_ ws: Workspace, to group: TabGroup) { move(ws, into: group) }
+
+    func removeFromGroup(_ ws: Workspace) {
+        guard let g = ws.group else { return }
+        // Leave the group to sit right after it (an emptied group simply disappears).
+        workspaces.removeAll { $0 === ws }
+        ws.group = nil
+        let last = workspaces.lastIndex { $0.group === g }
+        workspaces.insert(ws, at: last.map { $0 + 1 } ?? workspaces.count)
+        regroup()
+    }
+
+    func toggleCollapsed(_ group: TabGroup) {
+        group.collapsed.toggle()
+        // Chrome moves off a tab that disappears into a collapsed group.
+        if group.collapsed, let sel = selected, sel.group === group,
+           let other = workspaces.first(where: { $0.group?.collapsed != true }) {
+            selected = nil
+            select(other)
+            group.collapsed = true
+        }
+        metadataChanged()
+    }
+
+    func ungroup(_ group: TabGroup) {
+        for ws in workspaces where ws.group === group { ws.group = nil }
+        regroup()
+    }
+
+    func closeGroup(_ group: TabGroup) {
+        let members = workspaces.filter { $0.group === group }
+        if members.flatMap(\.panes).contains(where: { $0.surface.needsConfirmQuit }),
+           !confirm("Close this group?", "Processes are still running in its tabs.") { return }
+        members.flatMap(\.panes).forEach { close($0) }
+    }
+
+    func newTab(in group: TabGroup) {
+        guard let ws = newWorkspace(inheriting: selected?.focusedPane?.surface) else { return }
+        move(ws, into: group)
+        select(ws)
+    }
+
+    func groupsChanged() { metadataChanged() }
 }
