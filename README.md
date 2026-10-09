@@ -32,6 +32,7 @@ Needs Xcode and Zig 0.16.0.
 ```sh
 scripts/build-ghostty.sh   # libghostty -> vendor/ghostty/macos/GhosttyKit.xcframework
 scripts/build-app.sh       # -> "build/Helium Terminal.app"
+scripts/install-local.sh   # build and copy to /Applications, so Spotlight and Raycast find it
 ```
 
 To release, bump `VERSION`, add `packaging/notes/<version>.md`, and run `NOTARY_PROFILE=<profile> scripts/release.sh`.

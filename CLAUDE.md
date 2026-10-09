@@ -74,6 +74,7 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
 ```sh
 scripts/build-ghostty.sh               # libghostty (needs Zig 0.16.0); forces a SwiftPM relink
 scripts/build-app.sh                   # build/Helium Terminal.app (SIGN_IDENTITY=... for Developer ID)
+scripts/install-local.sh               # build and copy to /Applications (Spotlight/Raycast find it there)
 swift test                             # unit tests
 bench/final.sh                         # size, launch, memory, CPU, throughput
 NOTARY_PROFILE=helium-notary scripts/release.sh   # test, build, sign, notarize, release, update the tap
