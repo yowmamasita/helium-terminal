@@ -3,7 +3,6 @@ import AppKit
 /// Vertical tab list: title, branch, cwd, ports and the latest notification per workspace.
 final class SidebarView: NSVisualEffectView {
     var onSelect: ((Workspace) -> Void)?
-    var onNew: (() -> Void)?
 
     private let stack = NSStackView()
     private var lastSignature = ""
@@ -28,14 +27,7 @@ final class SidebarView: NSVisualEffectView {
         doc.addSubview(stack)
         scroll.documentView = doc
 
-        let add = NSButton(title: "New Tab", target: self, action: #selector(newTab))
-        add.bezelStyle = .accessoryBarAction
-        add.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New tab")
-        add.imagePosition = .imageLeading
-        add.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(scroll)
-        addSubview(add)
 
         update.bezelStyle = .accessoryBarAction
         update.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Update ready")
@@ -47,10 +39,14 @@ final class SidebarView: NSVisualEffectView {
         update.translatesAutoresizingMaskIntoConstraints = false
         addSubview(update)
         NSLayoutConstraint.activate([
-            update.leadingAnchor.constraint(equalTo: add.trailingAnchor, constant: 6),
-            update.centerYAnchor.constraint(equalTo: add.centerYAnchor),
+            update.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            update.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             update.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
         ])
+        // The tab list runs to the bottom unless the update button needs the space.
+        listToBottom = scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)
+        listAboveUpdate = scroll.bottomAnchor.constraint(equalTo: update.topAnchor, constant: -6)
+        listToBottom.isActive = true
         NotificationCenter.default.addObserver(forName: .heliumUpdaterChanged, object: nil, queue: .main) {
             [weak self] _ in self?.updaterChanged()
         }
@@ -58,9 +54,6 @@ final class SidebarView: NSVisualEffectView {
             scroll.topAnchor.constraint(equalTo: topAnchor, constant: 38),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: add.topAnchor, constant: -6),
-            add.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            add.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             doc.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
             doc.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
             doc.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
@@ -73,15 +66,18 @@ final class SidebarView: NSVisualEffectView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    @objc private func newTab() { onNew?() }
-
     private let update = NSButton(title: "", target: nil, action: nil)
+    private var listToBottom: NSLayoutConstraint!
+    private var listAboveUpdate: NSLayoutConstraint!
 
     private func updaterChanged() {
-        guard case .ready(let version) = Updater.shared.state else { return update.isHidden = true }
+        let version: String? = if case .ready(let v) = Updater.shared.state { v } else { nil }
+        update.isHidden = version == nil
+        listToBottom.isActive = version == nil
+        listAboveUpdate.isActive = version != nil
+        guard let version else { return }
         update.title = "Relaunch for \(version)"
         update.toolTip = "Helium \(version) is installed. Relaunch to start it; open terminals will close."
-        update.isHidden = false
     }
 
     @objc private func relaunchToUpdate() { Updater.shared.relaunch() }

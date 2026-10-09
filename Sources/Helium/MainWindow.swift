@@ -24,7 +24,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         let container = ContainerView(sidebar: sidebar, content: content)
         window.contentView = container
         sidebar.onSelect = { [weak self] ws in self?.select(ws) }
-        sidebar.onNew = { [weak self] in self?.newWorkspace(inheriting: self?.selected?.focusedPane?.surface) }
 
         // Branch and port metadata changes outside the terminal, so poll it.
         // Only the cheap file and libproc reads in Metadata run here; no subprocesses.
