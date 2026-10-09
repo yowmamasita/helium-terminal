@@ -8,6 +8,8 @@ A small macOS terminal for running coding agents, built on libghostty. It's nati
 - A Unix socket API, plus the `helium` command-line tool
 - Rendering by libghostty (Metal), configured by your existing Ghostty config (`~/.config/ghostty/config`)
 
+![Helium Terminal: four tabs in the sidebar showing git branches, folders, listening ports and agent notifications; an agent transcript and a dev server in splits, with a blue notification ring on the dev server pane](docs/screenshot.png)
+
 ## Install
 
 Apple Silicon, macOS 13 or later.
