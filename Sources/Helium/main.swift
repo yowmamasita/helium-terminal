@@ -4,6 +4,12 @@ import GhosttyKit
 // `helium <command> ...` talks to the running app over its socket and exits
 // without touching AppKit or libghostty, so CLI calls stay cheap.
 let args = Array(CommandLine.arguments.dropFirst())
+// `+action` runs a libghostty CLI action (e.g. `+show-config --docs`, `+list-fonts`).
+if let first = args.first, first.hasPrefix("+") {
+    _ = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+    ghostty_cli_try_action() // exits when it ran an action
+    exit(1)
+}
 if let first = args.first, !first.hasPrefix("-") {
     exit(CLI.run(args))
 }

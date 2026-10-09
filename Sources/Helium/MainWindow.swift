@@ -234,6 +234,11 @@ private final class ContainerView: NSView {
         addSubview(content)
         addSubview(handle)
         handle.onDrag = { [weak self] x in self?.resizeSidebar(to: x) }
+        NotificationCenter.default.addObserver(forName: .heliumSidebarWidthChanged, object: nil, queue: .main) {
+            [weak self] _ in
+            guard let self else { return }
+            self.resizeSidebar(to: UserDefaults.standard.double(forKey: "SidebarWidth"))
+        }
         handle.onDragEnd = { [weak self] in
             guard let self else { return }
             UserDefaults.standard.set(Double(self.sidebarWidth), forKey: "SidebarWidth")

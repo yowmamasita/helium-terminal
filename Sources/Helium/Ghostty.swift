@@ -49,16 +49,26 @@ final class Ghostty {
         app.map { ghostty_app_needs_confirm_quit($0) } ?? false
     }
 
+    /// Helium's own overrides, written by the Settings window. Loaded after the Ghostty
+    /// config so it wins, without Helium ever rewriting a config shared with Ghostty.app.
+    static var heliumConfigPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/helium-terminal/config").path
+    }
+
     private static func loadConfig() -> ghostty_config_t? {
         // Reads the user's Ghostty config, so themes, fonts and keybinds carry over.
         let cfg = ghostty_config_new()
         ghostty_config_load_default_files(cfg)
+        if FileManager.default.fileExists(atPath: heliumConfigPath) {
+            ghostty_config_load_file(cfg, heliumConfigPath)
+        }
         ghostty_config_load_recursive_files(cfg)
         ghostty_config_finalize(cfg)
         return cfg
     }
 
-    private func reloadConfig() {
+    func reloadConfig() {
         guard let app, let new = Self.loadConfig() else { return }
         ghostty_app_update_config(app, new)
         if let old = config { ghostty_config_free(old) }
@@ -125,6 +135,8 @@ final class Ghostty {
             NSWorkspace.shared.open(url)
         case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
             window.window?.toggleFullScreen(nil)
+        case GHOSTTY_ACTION_OPEN_CONFIG:
+            SettingsWindow.shared.show()
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             reloadConfig()
         default:
