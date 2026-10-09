@@ -86,6 +86,12 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   push, scan for secrets. Hold pushes the owner hasn't confirmed.
 - **New logic with branches, parsing or security** gets a test in `Tests/HeliumTests`. Run `swift test`.
 
+## Website
+
+`site/` is a single static page served by GitHub Pages from the `gh-pages` branch at
+helium-terminal.bensarmiento.com (Cloudflare DNS-only CNAME to yowmamasita.github.io, zone bensarmiento.com).
+Publishing pushes only `gh-pages`, never main. Keep it free of cmux comparisons; compare against iTerm2.
+
 ## Commands
 
 ```sh
@@ -94,6 +100,7 @@ scripts/build-app.sh                   # build/Helium Terminal.app (SIGN_IDENTIT
 scripts/install-local.sh               # build and copy to /Applications (Spotlight/Raycast find it there)
 swift test                             # unit tests
 bench/vs-iterm2.sh                     # size, launch, memory, CPU vs iTerm2 (iTerm2 must be closed)
+scripts/publish-site.sh                # publish site/ to gh-pages (helium-terminal.bensarmiento.com)
 NOTARY_PROFILE=helium-notary scripts/release.sh   # test, build, sign, notarize, release, update the tap
 ```
 
