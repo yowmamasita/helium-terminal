@@ -1,0 +1,9 @@
+.build/
+build/
+vendor/
+bench/results/
+bench/smoke/
+bench/winwait
+bench/bench.log
+build-ghostty.log
+dist/

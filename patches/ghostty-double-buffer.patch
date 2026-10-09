@@ -1,0 +1,15 @@
+diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
+index a98dce8..6276afd 100644
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -34,8 +34,8 @@ pub const custom_shader_target: shadertoy.Target = .msl;
+ // The fragCoord for Metal shaders is +Y = down.
+ pub const custom_shader_y_is_down = true;
+ 
+-/// Triple buffering.
+-pub const swap_chain_count = 3;
++/// Double buffering (helium-terminal): one fewer full-window IOSurface per visible pane.
++pub const swap_chain_count = 2;
+ 
+ const log = std.log.scoped(.metal);
+ 

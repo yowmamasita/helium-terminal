@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Helium</string>
+	<key>CFBundleDisplayName</key>
+	<string>Helium Terminal</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.yowmamasita.helium-terminal</string>
+	<key>CFBundleExecutable</key>
+	<string>helium-terminal</string>
+	<key>CFBundleIconFile</key>
+	<string>Helium</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 Ben Adrian Sarmiento. MIT License.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within Helium would like to use AppleScript.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>A program running within Helium would like to access your system's audio.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running within Helium would like to use Bluetooth.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within Helium would like to access your Calendar.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running within Helium would like to use the camera.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running within Helium would like to access your Contacts.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within Helium would like to access the local network.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running within Helium would like to access your location information.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running within Helium would like to use your microphone.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running within Helium would like to access your Photo Library.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within Helium would like to access your reminders.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running within Helium would like to use speech recognition.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A program running within Helium requires elevated privileges.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+</dict>
+</plist>
