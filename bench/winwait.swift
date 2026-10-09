@@ -3,12 +3,16 @@ import AppKit
 import CoreGraphics
 
 let path = CommandLine.arguments[1]
+// Optional window owner name, when it differs from the bundle's file name (iTerm.app runs as "iTerm2").
+let owner = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : nil
 let start = DispatchTime.now()
 let task = Process()
 task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-task.arguments = ["-g", "-n", path]
+// Pass HELIUM_* through so a benchmarked Helium uses throwaway state and socket, never the owner's.
+let env = ProcessInfo.processInfo.environment.filter { $0.key.hasPrefix("HELIUM_") }.flatMap { ["--env", "\($0.key)=\($0.value)"] }
+task.arguments = ["-g", "-n"] + env + [path, "--args", "-ApplePersistenceIgnoreState", "YES"]
 try! task.run()
-let name = (FileManager.default.displayName(atPath: path) as NSString).deletingPathExtension
+let name = owner ?? (FileManager.default.displayName(atPath: path) as NSString).deletingPathExtension
 while true {
     let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
     let found = list.contains { w in
