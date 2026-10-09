@@ -54,14 +54,16 @@ final class GroupEditor: NSViewController, NSTextFieldDelegate {
             b.setAccessibilityLabel(c.name)
             return b
         })
-        dots.spacing = 6
+        dots.distribution = .equalSpacing // spread the dots to line up with both ends of the field
 
         let stack = NSStackView(views: [field, dots])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        dots.widthAnchor.constraint(equalTo: field.widthAnchor).isActive = true
         view = stack
+        preferredContentSize = stack.fittingSize // otherwise the popover undersizes and clips the field and dots
     }
 
     override func viewDidAppear() {
