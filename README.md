@@ -1,6 +1,10 @@
-# Helium Terminal
+<p align="center">
+  <img src="docs/logo.png" width="128" height="128" alt="Helium Terminal icon: a periodic-table tile reading He">
+</p>
 
-A small macOS terminal for running coding agents, built on libghostty. It's native Swift and AppKit, with no Electron.
+<h1 align="center">Helium Terminal</h1>
+
+<p align="center">A small macOS terminal for running coding agents, built on libghostty. It's native Swift and AppKit, with no Electron.</p>
 
 - A sidebar of vertical tabs showing the title, git branch, cwd, listening ports and the latest notification
 - A blue ring on a pane, and a dot on its tab, when the pane needs attention
