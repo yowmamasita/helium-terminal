@@ -305,7 +305,11 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             [weak self] _ in self?.showUpdateState()
         }
 
-        let stack = NSStackView(views: [grid, updates, behavior])
+        let restore = NSButton(checkboxWithTitle: "Reopen tabs and resume Claude Code and Codex sessions after quitting",
+                               target: self, action: #selector(restoreToggled(_:)))
+        restore.state = SessionState.restoreEnabled ? .on : .off
+
+        let stack = NSStackView(views: [grid, restore, updates, behavior])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 18
@@ -313,6 +317,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     }
 
     private let updateStatus = NSTextField(labelWithString: "")
+
+    @objc private func restoreToggled(_ sender: NSButton) { SessionState.restoreEnabled = sender.state == .on }
 
     @objc private func autoUpdateToggled(_ sender: NSButton) { Updater.shared.automatic = sender.state == .on }
 

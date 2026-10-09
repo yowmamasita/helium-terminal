@@ -46,6 +46,18 @@ scrollback, Option as Alt, copy on select). Changes apply to open terminals righ
 rewrites a config you share with Ghostty.app. The All Options tab lists every Ghostty option with its current
 value and documentation; `helium +show-config --docs` prints the same from the command line.
 
+## Session restore
+
+Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Panes that were running
+Claude Code or Codex resume the same conversation: Helium types `claude --resume <id>` or `codex resume <id>` with
+the flags the agent was started with (model, permission mode and so on), minus any initial prompt. Other programs
+start fresh, because a process can't outlive the app. Closing the window instead of quitting starts clean next
+time. Turn it off in Settings.
+
+Helium finds Claude Code's session from `~/.claude/sessions/<pid>.json`, and Codex's from the session log the
+running process keeps open. It saves the layout every few seconds and on quit to
+`~/Library/Application Support/helium-terminal/state.json`.
+
 ## Updates
 
 The app checks GitHub for a new release shortly after launch and then daily. It downloads the new version and
@@ -112,7 +124,7 @@ How it stays light:
 
 ## Not included
 
-Bundled Ghostty themes (put any you use in `~/.config/ghostty/themes`), session restore, a browser pane, system notification banners, images on the clipboard, and
+Bundled Ghostty themes (put any you use in `~/.config/ghostty/themes`), keeping programs running across a quit, a browser pane, system notification banners, images on the clipboard, and
 an Intel build.
 
 ## Credits

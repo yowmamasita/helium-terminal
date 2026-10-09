@@ -36,6 +36,12 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   orange (ring plus a "needs input" badge; cleared only by typing in that pane) when an agent is blocked on the
   user. `Workspace.isWaitingForInput` decides by phrase. Sidebar rows size to their content; notification text
   wraps to the real sidebar width.
+- **Session restore:** on ⌘Q and every metadata poll, tabs, splits (with ratios), folders and running agents are
+  saved to `state.json`; launch rebuilds them and types each agent's resume command via `initial_input`.
+  Claude's session ID comes from `~/.claude/sessions/<pid>.json` (undocumented, read defensively), Codex's from
+  its open rollout file. Agents are matched by argv[0] (native Claude runs as a versioned file). Programs don't
+  survive a quit; that would need a session daemon, which the owner didn't ask for. Tests set
+  `HELIUM_STATE_FILE` as well as `HELIUM_SOCKET`.
 - **Sidebar metadata** is polled every 3 s from `.git/HEAD` reads and libproc (`ProcessTree`). It never runs a
   subprocess.
 - **Socket API:** one JSON object per line, file mode 0600. A second instance must never take over or delete a

@@ -9,6 +9,9 @@ final class PaneView: NSView {
     private let ring = RingView()
     private let linkPreview = NSTextField(labelWithString: "")
 
+    /// The Claude Code or Codex session running here, refreshed by the metadata poll.
+    var agent: AgentSession?
+
     /// Something new happened here (notification or bell); cleared by focusing the pane.
     var ringing = false {
         didSet { updateRing() }

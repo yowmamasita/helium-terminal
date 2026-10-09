@@ -38,13 +38,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: Workspaces
 
     @discardableResult
-    func newWorkspace(inheriting from: SurfaceView? = nil, cwd: String? = nil, command: String? = nil) -> Workspace? {
+    func newWorkspace(inheriting from: SurfaceView? = nil, cwd: String? = nil, command: String? = nil,
+                      initialInput: String? = nil) -> Workspace? {
         guard let app = Ghostty.shared.app else { return nil }
         let dir = cwd ?? from?.inheritedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
         let ws = Workspace()
         ws.onChange = { [weak self] in self?.metadataChanged() }
         ws.root.frame = content.bounds
-        ws.setFirst(PaneView(surface: SurfaceView(app: app, workingDirectory: dir, command: command)))
+        ws.setFirst(PaneView(surface: SurfaceView(app: app, workingDirectory: dir, command: command,
+                                                  initialInput: initialInput)))
         content.addSubview(ws.root)
         workspaces.append(ws)
         select(ws)
@@ -157,7 +159,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window?.title = selected?.title ?? "Helium"
     }
 
-    private func refreshMetadata() {
+    func refreshMetadata() {
         let tree = ProcessTree()
         for ws in workspaces {
             ws.branch = ws.cwd.flatMap(Metadata.gitBranch)
@@ -167,7 +169,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
                 p.surface.pwd = Metadata.cwd(of: p.surface.foregroundPID)
             }
         }
+        refreshAgents(tree)
         metadataChanged()
+        saveState()
+    }
+
+    /// Notes which panes run Claude Code or Codex, so a relaunch can resume them.
+    func refreshAgents(_ tree: ProcessTree = ProcessTree()) {
+        for p in workspaces.flatMap(\.panes) {
+            p.agent = p.surface.ttyName.flatMap(Metadata.ttyDevice).flatMap { Agents.session(onTTY: $0, tree: tree) }
+        }
     }
 
     // MARK: Window

@@ -25,7 +25,8 @@ final class SurfaceView: NSView, NSTextInputClient {
         ud.map { Unmanaged<SurfaceView>.fromOpaque($0).takeUnretainedValue() }
     }
 
-    init(app: ghostty_app_t, workingDirectory: String?, command: String? = nil, fontSize: Float = 0) {
+    init(app: ghostty_app_t, workingDirectory: String?, command: String? = nil, initialInput: String? = nil,
+         fontSize: Float = 0) {
         id = Self.nextID
         Self.nextID += 1
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -46,9 +47,11 @@ final class SurfaceView: NSView, NSTextInputClient {
 
         let wd = workingDirectory.flatMap { strdup($0) }
         let cmd = command.flatMap { strdup($0) }
-        defer { free(wd); free(cmd) }
+        let input = initialInput.flatMap { strdup($0) }
+        defer { free(wd); free(cmd); free(input) }
         cfg.working_directory = UnsafePointer(wd)
         cfg.command = UnsafePointer(cmd)
+        cfg.initial_input = UnsafePointer(input)
 
         surface = vars.withUnsafeMutableBufferPointer { buf in
             cfg.env_vars = buf.baseAddress

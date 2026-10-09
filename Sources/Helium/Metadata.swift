@@ -4,6 +4,7 @@ import Foundation
 /// Snapshot of all processes, used to find everything running under a pane's tty.
 struct ProcessTree {
     private(set) var children: [pid_t: [pid_t]] = [:]
+    private(set) var parent: [pid_t: pid_t] = [:]
     private(set) var byTTY: [dev_t: [pid_t]] = [:]
 
     init() {
@@ -17,6 +18,7 @@ struct ProcessTree {
         for p in procs.prefix(size / MemoryLayout<kinfo_proc>.stride) {
             let pid = p.kp_proc.p_pid
             children[p.kp_eproc.e_ppid, default: []].append(pid)
+            parent[pid] = p.kp_eproc.e_ppid
             if p.kp_eproc.e_tdev != -1 { byTTY[p.kp_eproc.e_tdev, default: []].append(pid) }
         }
     }
@@ -61,13 +63,15 @@ enum Metadata {
         }
     }
 
+    static func ttyDevice(_ name: String) -> dev_t? {
+        var st = stat()
+        let path = name.hasPrefix("/dev/") ? name : "/dev/" + name
+        return stat(path, &st) == 0 ? st.st_rdev : nil
+    }
+
     /// TCP ports in LISTEN state owned by any process under the given ttys.
     static func listeningPorts(ttys: [String], tree: ProcessTree) -> [Int] {
-        let devs: [dev_t] = ttys.compactMap { name in
-            var st = stat()
-            let path = name.hasPrefix("/dev/") ? name : "/dev/" + name
-            return stat(path, &st) == 0 ? st.st_rdev : nil
-        }
+        let devs = ttys.compactMap(ttyDevice)
         var ports = Set<Int>()
         for pid in tree.processes(onTTYs: devs) {
             ports.formUnion(listeningPorts(pid: pid))

@@ -16,7 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller = MainWindowController()
         Ghostty.shared.window = controller
-        controller.newWorkspace()
+        if !(SessionState.restoreEnabled && SessionState.load().map(controller.restore) == true) {
+            controller.newWorkspace()
+        }
         controller.showWindow(nil)
 
         Updater.shared.start()
@@ -27,7 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) { Ghostty.shared.setFocus(true) }
     func applicationDidResignActive(_ notification: Notification) { Ghostty.shared.setFocus(false) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ notification: Notification) { server?.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        // Agents are still running here, so this captures them. Closing the window instead
+        // empties the tabs first, which makes the next launch start fresh.
+        if SessionState.restoreEnabled, let controller {
+            controller.refreshAgents()
+            controller.saveState()
+        }
+        server?.stop()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard controller?.window?.isVisible == true, Ghostty.shared.needsConfirmQuit else { return .terminateNow }
