@@ -65,8 +65,8 @@ A pane gets a blue ring, and its tab a blue dot and the message, when a program 
 (OSC 9 or OSC 777), rings the bell, or runs `helium notify`. The blue ring clears when you focus the pane.
 
 Claude Code's "Claude is waiting for your input" reminder, sent about a minute after a turn ends, shows as
-"Done, waiting for you". When the message means an agent is blocked on you ("needs your permission",
-"waiting for approval", "needs input" and similar), the pane gets an orange ring and its tab an orange **needs input** badge
+"Done, waiting for you". When the message means an agent is blocked on you (Claude's "needs your permission",
+Codex's "Approval requested" or "wants to edit", "needs input" and similar), the pane gets an orange ring and its tab an orange **needs input** badge
 instead. It stays until you type into that pane. For Claude Code, add a hook:
 
 ```json

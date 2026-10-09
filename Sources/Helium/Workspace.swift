@@ -133,7 +133,9 @@ final class Workspace {
         if isIdleReminder(text) { return false }
         return ["needs your input", "needs input", "awaiting input",
                 "needs your permission", "needs your approval", "waiting for approval", "waiting for your approval",
-                "requires approval", "waiting for your response"].contains { t.contains($0) }
+                "requires approval", "waiting for your response",
+                // Codex: "Approval requested: <command>", "Codex wants to edit <file>"
+                "approval requested", "wants to edit", "wants to run"].contains { t.contains($0) }
     }
 
     /// Claude Code's "Claude is waiting for your input", sent about 60 s after a turn ends.

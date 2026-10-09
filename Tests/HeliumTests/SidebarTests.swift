@@ -43,7 +43,8 @@ final class SidebarTests: XCTestCase {
         XCTAssertTrue(Workspace.isIdleReminder("Claude Code: Claude is waiting for your input"))
         XCTAssertFalse(Workspace.isWaitingForInput("Claude Code: Claude is waiting for your input"))
         for text in ["Claude Code: Claude needs your permission to use Bash",
-                     "Codex: Waiting for approval to run npm install", "agent: needs your input", "Claude: needs input"] {
+                     "Codex: Waiting for approval to run npm install", "agent: needs your input", "Claude: needs input",
+                     "Codex: Approval requested: npm install", "Codex wants to edit src/main.rs"] {
             XCTAssertTrue(Workspace.isWaitingForInput(text), text)
         }
         for text in ["Dev server: Listening on :8080", "Build finished", "Tests passed"] {
