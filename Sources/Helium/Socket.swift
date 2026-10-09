@@ -23,6 +23,9 @@ final class SocketServer {
         let path = Self.path
         try FileManager.default.createDirectory(
             atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        // Another running instance owns a live socket: leave it alone rather than
+        // take it over (and delete it on quit). Only a stale file is replaced.
+        if Self.isLive(path) { throw POSIXError(.EADDRINUSE) }
         unlink(path)
 
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -47,9 +50,24 @@ final class SocketServer {
     }
 
     func stop() {
+        guard fd >= 0 else { return } // never started, so the socket file isn't ours
         source?.cancel()
-        if fd >= 0 { close(fd) }
+        close(fd)
         unlink(Self.path)
+    }
+
+    private static func isLive(_ path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &addr.sun_path) { buf in
+            _ = path.withCString { strncpy(buf.baseAddress!.assumingMemoryBound(to: CChar.self), $0, buf.count - 1) }
+        }
+        return withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        } == 0
     }
 
     private func accept() {
@@ -67,6 +85,7 @@ final class SocketServer {
             if n <= 0 { break }
             data.append(contentsOf: buf[0..<n])
         }
+        if data.isEmpty { return } // e.g. a liveness probe that connected and left
         let reply: [String: Any]
         if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             reply = DispatchQueue.main.sync { handler(obj) }
