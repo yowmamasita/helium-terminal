@@ -11,6 +11,11 @@ final class SidebarTests: XCTestCase {
         busy.notification = "Dev server: Listening on :8080 and serving the docs site at /docs, "
             + "with hot reload enabled for every package in the workspace"
         let width = Double(ProcessInfo.processInfo.environment["HELIUM_SIDEBAR_WIDTH"] ?? "") ?? 260
+        defer { LabelStore.delete("urgent"); LabelStore.delete("client") }
+        LabelStore.save(TabLabel(name: "urgent", color: "Red"))
+        LabelStore.save(TabLabel(name: "client", color: "Yellow"))
+        branch.labels = ["urgent", "client"]
+        branch.customTitle = "API work"
         let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 500))
         sidebar.appearance = NSAppearance(named: .darkAqua)
         sidebar.update([plain, branch, busy], selected: branch)

@@ -67,4 +67,14 @@ final class SessionTests: XCTestCase {
         let none = AgentSession(kind: .codex, sessionID: "x", cwd: nil, flags: [])
         XCTAssertEqual(none.resumeCommand(template: AgentSession.defaultTemplate(for: .codex)), "codex resume x")
     }
+
+    func testOldStateFilesStillLoadAndTitlesRoundTrip() throws {
+        let old = #"{"selected":0,"tabs":[{"pane":{"cwd":"/tmp"}}]}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SessionState.self, from: old)
+        XCTAssertNil(decoded.titles)
+        var state = decoded
+        state.titles = ["API work"]
+        state.labels = [["urgent", "client"]]
+        XCTAssertEqual(try JSONDecoder().decode(SessionState.self, from: JSONEncoder().encode(state)), state)
+    }
 }

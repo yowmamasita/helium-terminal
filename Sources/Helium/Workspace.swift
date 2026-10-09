@@ -148,7 +148,13 @@ final class Workspace {
         return t.contains("waiting for your input") || t.contains("waiting for input")
     }
 
+    /// Set by double-clicking the tab; nil means the automatic title.
+    var customTitle: String?
+    /// Names of Gmail-style labels (see LabelStore).
+    var labels: [String] = []
+
     var title: String {
+        if let customTitle { return customTitle }
         guard let s = focusedPane?.surface else { return "Terminal" }
         if !s.title.isEmpty { return s.title }
         return s.pwd.map { ($0 as NSString).lastPathComponent } ?? "Terminal"

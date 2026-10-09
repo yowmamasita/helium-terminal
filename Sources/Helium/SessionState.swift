@@ -19,6 +19,9 @@ struct SessionState: Codable, Equatable {
 
     var tabs: [Node]
     var selected: Int
+    /// Per tab, parallel to `tabs`. Optional so older state files still load.
+    var titles: [String?]? = nil
+    var labels: [[String]]? = nil
 
     static var url: URL {
         // Overridable so test instances never touch the real state.
@@ -50,9 +53,10 @@ extension MainWindowController {
             let first = s.isVertical ? s.arrangedSubviews[0].frame.width : s.arrangedSubviews[0].frame.height
             return .split(vertical: s.isVertical, ratio: total > 0 ? Double(first / total) : 0.5, first: a, second: b)
         }
-        let tabs = workspaces.compactMap { node($0.root) }
+        let saved = workspaces.compactMap { ws in node(ws.root).map { (ws, $0) } }
         let selected = workspaces.firstIndex { $0 === self.selected } ?? 0
-        return SessionState(tabs: tabs, selected: selected)
+        return SessionState(tabs: saved.map(\.1), selected: selected,
+                            titles: saved.map(\.0.customTitle), labels: saved.map(\.0.labels))
     }
 
     private static var lastSaved: Data?
@@ -88,11 +92,13 @@ extension MainWindowController {
             build(second, in: new, ws)
         }
 
-        for tab in state.tabs {
+        for (i, tab) in state.tabs.enumerated() {
             let leaf = tab.firstPane
             guard let ws = newWorkspace(cwd: leaf.agent?.cwd ?? leaf.cwd, initialInput: Self.resumeInput(leaf.agent)),
                   let pane = ws.panes.first else { continue }
             build(tab, in: pane, ws)
+            ws.customTitle = state.titles?[safe: i] ?? nil
+            ws.labels = state.labels?[safe: i] ?? []
         }
         if workspaces.indices.contains(state.selected) { select(workspaces[state.selected]) }
         // Split positions need real sizes, which exist only after the window lays out.
@@ -105,4 +111,8 @@ extension MainWindowController {
         }
         return !workspaces.isEmpty
     }
+}
+
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

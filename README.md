@@ -46,6 +46,13 @@ scrollback, Option as Alt, copy on select). Changes apply to open terminals righ
 rewrites a config you share with Ghostty.app. The All Options tab lists every Ghostty option with its current
 value and documentation; `helium +show-config --docs` prints the same from the command line.
 
+## Tab titles and labels
+
+Double-click a tab (or right-click > Rename Tab) to give it your own title; an empty title goes back to the automatic
+one. Right-click > Labels adds Gmail-style colored labels: tick any number per tab, create one with New Label…
+(name and one of 12 colors), or delete one everywhere. Titles and labels are kept across quit and relaunch, and
+`helium list` reports each tab's labels.
+
 ## Session restore
 
 Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Panes that were running
