@@ -21,5 +21,6 @@ let package = Package(
                 .linkedFramework("UniformTypeIdentifiers"),
             ]
         ),
+        .testTarget(name: "HeliumTests", dependencies: ["helium-terminal"], path: "Tests/HeliumTests"),
     ]
 )

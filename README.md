@@ -45,6 +45,13 @@ scrollback, Option as Alt, copy on select). Changes apply to open terminals righ
 rewrites a config you share with Ghostty.app. The All Options tab lists every Ghostty option with its current
 value and documentation; `helium +show-config --docs` prints the same from the command line.
 
+## Updates
+
+The app checks GitHub for a new release shortly after launch and then daily. It downloads the new version and
+installs it only if it's signed by the same Apple developer and notarized. It replaces itself on disk without
+interrupting your terminals, and the sidebar then shows a Relaunch button. Turn this off, or check now, in Settings.
+Copies installed with zerobrew (or as a Homebrew formula) and development builds don't update themselves.
+
 ## Keys
 
 Keys come from Ghostty's default keybinds (or your own Ghostty config): cmd+t new tab, cmd+d split right,

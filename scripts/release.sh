@@ -23,6 +23,9 @@ APP="build/Helium Terminal.app"
 DIST=dist
 rm -rf "$DIST" && mkdir -p "$DIST"
 
+echo "==> test"
+swift test
+
 echo "==> build and sign ($SIGN_IDENTITY)"
 SIGN_IDENTITY="$SIGN_IDENTITY" scripts/build-app.sh
 

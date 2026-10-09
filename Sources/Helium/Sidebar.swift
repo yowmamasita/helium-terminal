@@ -36,6 +36,24 @@ final class SidebarView: NSVisualEffectView {
 
         addSubview(scroll)
         addSubview(add)
+
+        update.bezelStyle = .accessoryBarAction
+        update.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Update ready")
+        update.imagePosition = .imageLeading
+        update.contentTintColor = .systemBlue
+        update.target = self
+        update.action = #selector(relaunchToUpdate)
+        update.isHidden = true
+        update.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(update)
+        NSLayoutConstraint.activate([
+            update.leadingAnchor.constraint(equalTo: add.trailingAnchor, constant: 6),
+            update.centerYAnchor.constraint(equalTo: add.centerYAnchor),
+            update.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+        ])
+        NotificationCenter.default.addObserver(forName: .heliumUpdaterChanged, object: nil, queue: .main) {
+            [weak self] _ in self?.updaterChanged()
+        }
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: topAnchor, constant: 38),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -56,6 +74,17 @@ final class SidebarView: NSVisualEffectView {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     @objc private func newTab() { onNew?() }
+
+    private let update = NSButton(title: "", target: nil, action: nil)
+
+    private func updaterChanged() {
+        guard case .ready(let version) = Updater.shared.state else { return update.isHidden = true }
+        update.title = "Relaunch for \(version)"
+        update.toolTip = "Helium \(version) is installed. Relaunch to start it; open terminals will close."
+        update.isHidden = false
+    }
+
+    @objc private func relaunchToUpdate() { Updater.shared.relaunch() }
 
     func update(_ workspaces: [Workspace], selected: Workspace?) {
         let rows = workspaces.enumerated().map { i, ws in

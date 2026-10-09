@@ -288,11 +288,44 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         """, secondary: true)
         behavior.preferredMaxLayoutWidth = 560
 
-        let stack = NSStackView(views: [grid, behavior])
+        let auto = NSButton(checkboxWithTitle: "Check for updates automatically", target: self,
+                            action: #selector(autoUpdateToggled(_:)))
+        auto.state = Updater.shared.automatic ? .on : .off
+        let checkNow = button("Check Now", #selector(checkForUpdates))
+        let updates = NSStackView(views: [auto, checkNow, updateStatus])
+        updates.spacing = 12
+        updateStatus.textColor = .secondaryLabelColor
+        if let reason = Updater.shared.unavailableReason {
+            auto.isEnabled = false
+            checkNow.isEnabled = false
+            updateStatus.stringValue = reason
+        }
+        NotificationCenter.default.addObserver(forName: .heliumUpdaterChanged, object: nil, queue: .main) {
+            [weak self] _ in self?.showUpdateState()
+        }
+
+        let stack = NSStackView(views: [grid, updates, behavior])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 18
         return padded(stack)
+    }
+
+    private let updateStatus = NSTextField(labelWithString: "")
+
+    @objc private func autoUpdateToggled(_ sender: NSButton) { Updater.shared.automatic = sender.state == .on }
+
+    @objc private func checkForUpdates() { Updater.shared.check() }
+
+    private func showUpdateState() {
+        updateStatus.stringValue = switch Updater.shared.state {
+        case .idle: ""
+        case .checking: "Checking…"
+        case .upToDate: "Helium is up to date."
+        case .downloading(let v): "Downloading \(v)…"
+        case .ready(let v): "\(v) is installed. Relaunch to start it."
+        case .failed(let e): "Update failed: \(e)"
+        }
     }
 
     private func currentSidebarWidth() -> Double {

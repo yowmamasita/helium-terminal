@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.newWorkspace()
         controller.showWindow(nil)
 
+        Updater.shared.start()
         server = SocketServer { [weak self] req in self?.handle(req) ?? ["ok": false] }
         do { try server?.start() } catch { NSLog("helium: socket API unavailable: \(error)") }
     }
