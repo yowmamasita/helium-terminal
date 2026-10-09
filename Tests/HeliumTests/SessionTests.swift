@@ -79,4 +79,11 @@ final class SessionTests: XCTestCase {
         state.tabGroups = ["g1"]
         XCTAssertEqual(try JSONDecoder().decode(SessionState.self, from: JSONEncoder().encode(state)), state)
     }
+
+    func testScrollMultiplierParsing() {
+        XCTAssertTrue(SettingsWindow.scrollMultipliers("precision:1,discrete:3") == (1, 3))
+        XCTAssertTrue(SettingsWindow.scrollMultipliers("precision:0.5") == (0.5, 3))
+        XCTAssertTrue(SettingsWindow.scrollMultipliers("2") == (2, 2))
+        XCTAssertTrue(SettingsWindow.scrollMultipliers("") == (1, 3))
+    }
 }

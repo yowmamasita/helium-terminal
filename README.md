@@ -41,7 +41,7 @@ That script builds, signs, notarizes, publishes the GitHub release and updates t
 ## Settings
 
 ⌘, opens Settings. The Terminal tab covers the common Ghostty options (font, theme, cursor, opacity, padding,
-scrollback, Option as Alt, copy on select). Changes apply to open terminals right away and are saved to
+scrollback, Option as Alt, copy on select, trackpad and mouse wheel scroll speed). Changes apply to open terminals right away and are saved to
 `~/Library/Application Support/helium-terminal/config`, which loads after your Ghostty config, so Helium never
 rewrites a config you share with Ghostty.app. The All Options tab lists every Ghostty option with its current
 value and documentation; `helium +show-config --docs` prints the same from the command line.

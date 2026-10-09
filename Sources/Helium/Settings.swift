@@ -184,7 +184,51 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             .init(title: "When a program is running", value: "true"), .init(title: "Never", value: "false"),
             .init(title: "Always", value: "always"),
         ])
+        let scroll = Self.scrollMultipliers(values["mouse-scroll-multiplier"] ?? "")
+        rowSlider("Trackpad scroll speed", value: scroll.precision, range: 0.1...2, tag: 0) { String(format: "%.2g×", $0) }
+        rowSlider("Mouse wheel lines per notch", value: scroll.discrete, range: 1...10, tag: 1) { String(format: "%.0f", $0) }
         terminalGrid.column(at: 0).xPlacement = .trailing
+    }
+
+    // MARK: Scroll speed
+
+    /// Parses Ghostty's `precision:X,discrete:Y` (or a bare number for both); defaults 1 and 3.
+    static func scrollMultipliers(_ s: String) -> (precision: Double, discrete: Double) {
+        var p = 1.0, d = 3.0
+        for part in s.split(separator: ",") {
+            let kv = part.split(separator: ":").map { $0.trimmingCharacters(in: .whitespaces) }
+            if kv.count == 1, let v = Double(kv[0]) { p = v; d = v }
+            if kv.count == 2, let v = Double(kv[1]) { if kv[0] == "precision" { p = v } else if kv[0] == "discrete" { d = v } }
+        }
+        return (p, d)
+    }
+
+    private var scrollSliders: [NSSlider] = []
+    private var scrollLabels: [NSTextField] = []
+    private var scrollFormat: [(Double) -> String] = []
+
+    private func rowSlider(_ title: String, value: Double, range: ClosedRange<Double>, tag: Int,
+                           format: @escaping (Double) -> String) {
+        let slider = NSSlider(value: min(max(value, range.lowerBound), range.upperBound),
+                              minValue: range.lowerBound, maxValue: range.upperBound,
+                              target: self, action: #selector(scrollChanged(_:)))
+        slider.tag = tag
+        slider.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let readout = NSTextField(labelWithString: format(slider.doubleValue))
+        readout.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        if scrollSliders.count > tag { scrollSliders[tag] = slider; scrollLabels[tag] = readout; scrollFormat[tag] = format }
+        else { scrollSliders.append(slider); scrollLabels.append(readout); scrollFormat.append(format) }
+        terminalGrid.addRow(with: [label(title + ":"), NSStackView(views: [slider, readout])])
+    }
+
+    @objc private func scrollChanged(_ sender: NSSlider) {
+        scrollLabels[sender.tag].stringValue = scrollFormat[sender.tag](sender.doubleValue)
+        // Applying reloads the config, so only do it when the drag ends.
+        guard NSApp.currentEvent?.type != .leftMouseDragged else { return }
+        let p = (scrollSliders[0].doubleValue * 100).rounded() / 100
+        let d = scrollSliders[1].doubleValue.rounded()
+        HeliumConfig.set("mouse-scroll-multiplier", "precision:\(p),discrete:\(Int(d))")
+        Ghostty.shared.reloadConfig()
     }
 
     private func rowText(_ title: String, _ key: String, alsoKey: String? = nil, placeholder: String,
