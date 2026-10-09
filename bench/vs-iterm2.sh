@@ -52,5 +52,10 @@ measure() { # name app-path process-pattern window-owner
   echo "$name bundle_mb=$(du -sm "$app" | cut -f1) launch_ms=$(echo $launches | med) [$launches ] idle_mb=$(echo $M | med) [$M ] idle_cpu=$(echo "($c1-$c0)/30*100" | bc -l | xargs printf '%.2f')%"
   close
 }
+# With arguments: measure those Helium builds instead (e.g. an old build against the current one).
+if [ $# -gt 0 ]; then
+  for app in "$@"; do measure "$app" "$app" "$app/Contents/MacOS/helium-terminal" "Helium Terminal"; done
+  exit 0
+fi
 measure Helium "/Applications/Helium Terminal.app" "Helium Terminal.app/Contents/MacOS/helium-terminal" "Helium Terminal"
 measure iTerm2 /Applications/iTerm.app "iTerm.app/Contents/MacOS/iTerm2" iTerm2
