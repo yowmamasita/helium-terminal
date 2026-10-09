@@ -130,8 +130,9 @@ final class SurfaceView: NSView, NSTextInputClient {
         layer?.contentsScale = window.backingScaleFactor
         CATransaction.commit()
         guard let surface else { return }
-        let fb = convertToBacking(frame)
-        ghostty_surface_set_content_scale(surface, fb.width / frame.width, fb.height / frame.height)
+        // Not a backing/frame ratio: the first tab joins the window at zero size, and 0/0 gave it 1x text.
+        let scale = window.backingScaleFactor
+        ghostty_surface_set_content_scale(surface, scale, scale)
         setFrameSize(frame.size)
     }
 
