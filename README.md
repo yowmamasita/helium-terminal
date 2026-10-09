@@ -37,6 +37,14 @@ scripts/build-app.sh       # -> "build/Helium Terminal.app"
 To release, bump `VERSION`, add `packaging/notes/<version>.md`, and run `NOTARY_PROFILE=<profile> scripts/release.sh`.
 That script builds, signs, notarizes, publishes the GitHub release and updates the tap.
 
+## Settings
+
+⌘, opens Settings. The Terminal tab covers the common Ghostty options (font, theme, cursor, opacity, padding,
+scrollback, Option as Alt, copy on select). Changes apply to open terminals right away and are saved to
+`~/Library/Application Support/helium-terminal/config`, which loads after your Ghostty config, so Helium never
+rewrites a config you share with Ghostty.app. The All Options tab lists every Ghostty option with its current
+value and documentation; `helium +show-config --docs` prints the same from the command line.
+
 ## Keys
 
 Keys come from Ghostty's default keybinds (or your own Ghostty config): cmd+t new tab, cmd+d split right,
@@ -91,7 +99,7 @@ How it stays light:
 
 ## Not included
 
-Bundled Ghostty themes (put any you use in `~/.config/ghostty/themes`), session restore, a browser pane, system notification banners, a settings UI, images on the clipboard, and
+Bundled Ghostty themes (put any you use in `~/.config/ghostty/themes`), session restore, a browser pane, system notification banners, images on the clipboard, and
 an Intel build.
 
 ## Credits
