@@ -136,9 +136,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     /// Called for OSC 9/777 desktop notifications, the bell, and `helium notify`.
     func notify(_ view: SurfaceView, text: String?) {
         guard let pane = view.pane, let ws = pane.workspace else { return }
-        if let text, !text.isEmpty { ws.notification = text }
         let looking = NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === view
-        if !looking { pane.ringing = true }
+        if let text, Workspace.isWaitingForInput(text) {
+            if !looking { pane.waiting = true }
+        } else {
+            if let text, !text.isEmpty { ws.notification = text }
+            if !looking { pane.ringing = true }
+        }
         metadataChanged()
     }
 

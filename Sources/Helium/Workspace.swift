@@ -9,8 +9,25 @@ final class PaneView: NSView {
     private let ring = RingView()
     private let linkPreview = NSTextField(labelWithString: "")
 
+    /// Something new happened here (notification or bell); cleared by focusing the pane.
     var ringing = false {
-        didSet { ring.isHidden = !ringing }
+        didSet { updateRing() }
+    }
+
+    /// An agent here is blocked on the user; cleared only by typing into the pane.
+    var waiting = false {
+        didSet { updateRing() }
+    }
+
+    private func updateRing() {
+        ring.isHidden = !ringing && !waiting
+        ring.layer?.borderColor = (waiting ? NSColor.systemOrange : NSColor.systemBlue).cgColor
+    }
+
+    func userTyped() {
+        guard waiting else { return }
+        waiting = false
+        workspace?.onChange?()
     }
 
     /// The URL under the mouse (libghostty reports it while a link is hovered with cmd held).
@@ -107,6 +124,16 @@ final class Workspace {
 
     var focusedPane: PaneView? { focused ?? panes.first }
     var unread: Bool { panes.contains { $0.ringing } }
+    var waiting: Bool { panes.contains { $0.waiting } }
+
+    /// Agent notifications that mean "blocked until you answer" (Claude Code, Codex and similar),
+    /// shown as a badge rather than as message text.
+    static func isWaitingForInput(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return ["waiting for your input", "waiting for input", "needs your input", "needs input", "awaiting input",
+                "needs your permission", "needs your approval", "waiting for approval", "waiting for your approval",
+                "requires approval", "waiting for your response"].contains { t.contains($0) }
+    }
 
     var title: String {
         guard let s = focusedPane?.surface else { return "Terminal" }

@@ -272,7 +272,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         let behavior = label("""
         Notifications: a pane gets a blue ring, and its tab a dot and the message, when a program \
         sends a desktop notification (OSC 9 or OSC 777), rings the bell, or runs `helium notify`. \
-        The ring clears when you focus the pane.
+        The ring clears when you focus the pane. When an agent is waiting for your input or permission, \
+        the ring is orange and the tab shows "needs input" until you type in that pane.
 
         Sidebar: branch, folder and listening ports refresh every 3 seconds, read from git files \
         and the process table without running any commands.

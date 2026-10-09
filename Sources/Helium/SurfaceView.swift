@@ -271,6 +271,7 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     override func keyDown(with event: NSEvent) {
         guard let surface else { return interpretKeyEvents([event]) }
+        pane?.userTyped()
 
         // Apply option-as-alt and similar config by asking libghostty which mods translate text.
         let translated = Self.flags(ghostty_surface_key_translation_mods(surface, Self.mods(event.modifierFlags)))

@@ -66,6 +66,9 @@ final class SidebarView: NSVisualEffectView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// Heights of the tab rows, top to bottom (for tests).
+    var rowHeights: [CGFloat] { stack.arrangedSubviews.map(\.frame.height) }
+
     private let update = NSButton(title: "", target: nil, action: nil)
     private var listToBottom: NSLayoutConstraint!
     private var listAboveUpdate: NSLayoutConstraint!
@@ -86,7 +89,7 @@ final class SidebarView: NSVisualEffectView {
         let rows = workspaces.enumerated().map { i, ws in
             Row.Model(ws: ws, index: i + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
                       branch: ws.branch, ports: ws.ports, notification: ws.notification,
-                      unread: ws.unread, selected: ws === selected)
+                      unread: ws.unread, waiting: ws.waiting, selected: ws === selected)
         }
         // The poll timer calls this every few seconds; skip rebuilding when nothing changed.
         let sig = rows.map(\.signature).joined(separator: "\u{1}")
@@ -121,10 +124,11 @@ private final class Row: NSView {
         let ports: [Int]
         let notification: String?
         let unread: Bool
+        let waiting: Bool
         let selected: Bool
 
         var signature: String {
-            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(branch ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(selected)"
+            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(branch ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(waiting)|\(selected)"
         }
     }
 
@@ -146,7 +150,15 @@ private final class Row: NSView {
         dot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
         let shortcut = Self.label(m.index <= 9 ? "⌘\(m.index)" : "", .systemFont(ofSize: 10), .tertiaryLabelColor)
-        let head = NSStackView(views: [dot, title, NSView(), shortcut])
+        let badge = Self.label("needs input", .systemFont(ofSize: 10, weight: .semibold), .white)
+        badge.drawsBackground = true
+        badge.backgroundColor = .systemOrange
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 4
+        badge.layer?.masksToBounds = true
+        badge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        badge.isHidden = !m.waiting
+        let head = NSStackView(views: [dot, title, NSView(), badge, shortcut])
         head.spacing = 6
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -159,11 +171,13 @@ private final class Row: NSView {
                                     .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen))
         }
         if let n = m.notification {
-            let l = Self.label(n, small, m.unread ? .systemBlue : .tertiaryLabelColor)
-            l.lineBreakMode = .byWordWrapping
+            let l = NSTextField(wrappingLabelWithString: n)
+            l.font = small
+            l.textColor = m.unread ? .systemBlue : .tertiaryLabelColor
             l.cell?.truncatesLastVisibleLine = true
-            l.maximumNumberOfLines = 2
-            l.preferredMaxLayoutWidth = 200
+            l.maximumNumberOfLines = 4
+            l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            notificationLabel = l
             lines.append(l)
         }
 
@@ -181,10 +195,22 @@ private final class Row: NSView {
             head.widthAnchor.constraint(equalTo: v.widthAnchor),
         ])
         setAccessibilityRole(.button)
-        setAccessibilityLabel(m.title)
+        setAccessibilityLabel(m.waiting ? "\(m.title), needs input" : m.title)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    private var notificationLabel: NSTextField?
+    private var contentInset: CGFloat { 16 }
+
+    override func layout() {
+        // Wrap the notification to the row's real width so its height matches its lines.
+        if let l = notificationLabel, bounds.width > contentInset,
+           l.preferredMaxLayoutWidth != bounds.width - contentInset {
+            l.preferredMaxLayoutWidth = bounds.width - contentInset
+        }
+        super.layout()
+    }
 
     override func mouseDown(with event: NSEvent) { onClick() }
     override func accessibilityPerformPress() -> Bool { onClick(); return true }

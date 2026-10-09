@@ -92,10 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 [
                     "id": ws.id, "index": i + 1, "title": ws.title, "cwd": ws.cwd ?? NSNull(),
                     "branch": ws.branch ?? NSNull(), "ports": ws.ports, "notification": ws.notification ?? NSNull(),
-                    "unread": ws.unread, "selected": ws === c.selected,
+                    "unread": ws.unread, "waiting": ws.waiting, "selected": ws === c.selected,
                     "panes": ws.panes.map { p in
                         ["id": p.surface.id, "title": p.surface.title, "cwd": p.surface.pwd ?? NSNull(),
-                         "focused": p === ws.focusedPane, "ringing": p.ringing] as [String: Any]
+                         "focused": p === ws.focusedPane, "ringing": p.ringing, "waiting": p.waiting] as [String: Any]
                     },
                 ] as [String: Any]
             }]
