@@ -119,19 +119,17 @@ helium close [--pane ID]
 `~/Library/Application Support/helium-terminal/helium.sock` (mode 0600). It takes one JSON object per line,
 e.g. `{"cmd":"notify","pane":"3","arg":"done"}`.
 
-## Performance (vs cmux 0.65.0, Apple Silicon, `bench/final.sh`)
+## Performance (vs iTerm2 3.7, Apple Silicon, `bench/vs-iterm2.sh`)
 
-| | Helium | cmux |
+| | Helium | iTerm2 |
 |---|---|---|
-| App size | 12 MB | 745 MB |
-| Launch until the window appears | ~290 ms | ~1,080 ms |
-| Memory, focused window | 152 MB | 323 MB |
-| Memory, background window | 58 MB | 319 MB |
-| Idle CPU, focused (cursor blinking) | 0.5% | 3.3% |
-| Idle CPU, background | 0.1% | 3.1% |
+| App size | 15 MB | 176 MB |
+| Launch until the window appears | ~250 ms | ~590 ms |
+| Idle memory, one terminal | 88 MB | 204 MB (app and its session server) |
+| Idle CPU | 0.2% | 2.2% |
 
-Output speed is the same, because both use libghostty: 50 MB of plain text takes 0.16 s, and 50 MB of
-color-heavy output takes 0.43 s.
+Medians of 5 background launches with fresh state, no keystrokes; CPU over 30 s idle. When Helium's window is
+covered or minimized it drops further (about 60 MB, 0.1% CPU), because it stops rendering and frees GPU buffers.
 
 How it stays light:
 - libghostty is built ReleaseFast without Sentry or translations, and patched for double buffering

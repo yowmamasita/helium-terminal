@@ -5,6 +5,9 @@ import CoreGraphics
 let path = CommandLine.arguments[1]
 // Optional window owner name, when it differs from the bundle's file name (iTerm.app runs as "iTerm2").
 let owner = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : nil
+// Windows already on screen (e.g. the owner's own Helium) don't count as the new launch.
+let existing = Set((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+    .compactMap { $0[kCGWindowNumber as String] as? Int })
 let start = DispatchTime.now()
 let task = Process()
 task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -17,6 +20,7 @@ while true {
     let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
     let found = list.contains { w in
         (w[kCGWindowLayer as String] as? Int) == 0 &&
+        !existing.contains(w[kCGWindowNumber as String] as? Int ?? -1) &&
         ((w[kCGWindowOwnerName as String] as? String).map { $0.caseInsensitiveCompare(name) == .orderedSame } ?? false) &&
         ((w[kCGWindowBounds as String] as? [String: Double])?["Height"] ?? 0) > 200
     }

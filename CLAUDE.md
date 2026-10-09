@@ -79,7 +79,8 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   relaunch and resume with `claude --resume`.
 - **Screenshots and docs are public:** use throwaway demo repos and a minimal prompt, with no usernames,
   hostnames or real paths. Check every capture before committing it.
-- **Benchmarks** (`bench/final.sh`): no keystrokes, background launches. Compare against iTerm2, not cmux.
+- **Benchmarks** (`bench/vs-iterm2.sh`): no keystrokes, background launches, isolated state and socket, every
+  launched process (including iTerm2's session servers) killed by PID on exit. Compare against iTerm2, not cmux.
 - **Writing:** plain, specific English. Commas rather than em dashes, no emojis.
 - **Commits:** author `Ben Adrian Sarmiento <ben+claude@nimbly.email>`, no attribution trailers. Before any public
   push, scan for secrets. Hold pushes the owner hasn't confirmed.
@@ -92,7 +93,7 @@ scripts/build-ghostty.sh               # libghostty (needs Zig 0.16.0); forces a
 scripts/build-app.sh                   # build/Helium Terminal.app (SIGN_IDENTITY=... for Developer ID)
 scripts/install-local.sh               # build and copy to /Applications (Spotlight/Raycast find it there)
 swift test                             # unit tests
-bench/final.sh                         # size, launch, memory, CPU, throughput
+bench/vs-iterm2.sh                     # size, launch, memory, CPU vs iTerm2 (iTerm2 must be closed)
 NOTARY_PROFILE=helium-notary scripts/release.sh   # test, build, sign, notarize, release, update the tap
 ```
 
