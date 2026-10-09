@@ -89,7 +89,8 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
 ## Website
 
 `site/` is a single static page served by GitHub Pages from the `gh-pages` branch at
-helium-terminal.bensarmiento.com (Cloudflare DNS-only CNAME to yowmamasita.github.io, zone bensarmiento.com).
+helium-terminal.bensarmiento.com: a Cloudflare-proxied CNAME to yowmamasita.github.io in zone bensarmiento.com,
+like the main site (zone SSL mode Flexible). HTTPS comes from Cloudflare; GitHub's own certificate never issued.
 Publishing pushes only `gh-pages`, never main. Keep it free of cmux comparisons; compare against iTerm2.
 
 ## Commands
