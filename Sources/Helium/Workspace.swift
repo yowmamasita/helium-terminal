@@ -130,9 +130,17 @@ final class Workspace {
     /// shown as a badge rather than as message text.
     static func isWaitingForInput(_ text: String) -> Bool {
         let t = text.lowercased()
-        return ["waiting for your input", "waiting for input", "needs your input", "needs input", "awaiting input",
+        if isIdleReminder(text) { return false }
+        return ["needs your input", "needs input", "awaiting input",
                 "needs your permission", "needs your approval", "waiting for approval", "waiting for your approval",
                 "requires approval", "waiting for your response"].contains { t.contains($0) }
+    }
+
+    /// Claude Code's "Claude is waiting for your input", sent about 60 s after a turn ends.
+    /// It means the turn is done, not that the agent is blocked.
+    static func isIdleReminder(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return t.contains("waiting for your input") || t.contains("waiting for input")
     }
 
     var title: String {

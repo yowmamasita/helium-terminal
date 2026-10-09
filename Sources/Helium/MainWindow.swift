@@ -140,7 +140,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         if let text, Workspace.isWaitingForInput(text) {
             if !looking { pane.waiting = true }
         } else {
-            if let text, !text.isEmpty { ws.notification = text }
+            if let text, Workspace.isIdleReminder(text) {
+                ws.notification = "Done, waiting for you"
+            } else if let text, !text.isEmpty {
+                ws.notification = text
+            }
             if !looking { pane.ringing = true }
         }
         metadataChanged()

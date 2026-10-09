@@ -39,7 +39,10 @@ final class SidebarTests: XCTestCase {
     }
 
     func testWaitingForInputIsRecognized() {
-        for text in ["Claude Code: Claude is waiting for your input", "Claude Code: Claude needs your permission to use Bash",
+        // The idle reminder means the turn finished; it must not look like a blocked agent.
+        XCTAssertTrue(Workspace.isIdleReminder("Claude Code: Claude is waiting for your input"))
+        XCTAssertFalse(Workspace.isWaitingForInput("Claude Code: Claude is waiting for your input"))
+        for text in ["Claude Code: Claude needs your permission to use Bash",
                      "Codex: Waiting for approval to run npm install", "agent: needs your input", "Claude: needs input"] {
             XCTAssertTrue(Workspace.isWaitingForInput(text), text)
         }

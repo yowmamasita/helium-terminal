@@ -64,8 +64,9 @@ cmd+opt+arrows move between splits.
 A pane gets a blue ring, and its tab a blue dot and the message, when a program sends a desktop notification
 (OSC 9 or OSC 777), rings the bell, or runs `helium notify`. The blue ring clears when you focus the pane.
 
-When the message means an agent is blocked on you ("waiting for your input", "needs your permission",
-"waiting for approval" and similar), the pane gets an orange ring and its tab an orange **needs input** badge
+Claude Code's "Claude is waiting for your input" reminder, sent about a minute after a turn ends, shows as
+"Done, waiting for you". When the message means an agent is blocked on you ("needs your permission",
+"waiting for approval", "needs input" and similar), the pane gets an orange ring and its tab an orange **needs input** badge
 instead. It stays until you type into that pane. For Claude Code, add a hook:
 
 ```json
