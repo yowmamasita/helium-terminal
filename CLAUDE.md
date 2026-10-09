@@ -59,8 +59,10 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
 - **The owner's real sessions, including this assistant, may be running inside Helium or iTerm2.** Never `pkill`
   or quit them. Kill test processes by exact PID, excluding the owner's. Use `/usr/bin/pgrep`, because a shell
   wrapper can swallow plain `pgrep` output.
-- **Rebuilding `build/Helium Terminal.app` is safe while it runs.** Relaunching it ends the owner's session, so ask
-  them to relaunch and resume with `claude --resume`.
+- **After every code change, run `scripts/install-local.sh`** (not just `build-app.sh`) so
+  `/Applications/Helium Terminal.app`, the copy the owner launches from Raycast, is always current. Installing
+  is safe while Helium runs. Never relaunch it yourself, because that ends the owner's session: tell them to
+  relaunch and resume with `claude --resume`.
 - **Screenshots and docs are public:** use throwaway demo repos and a minimal prompt, with no usernames,
   hostnames or real paths. Check every capture before committing it.
 - **Benchmarks** (`bench/final.sh`): no keystrokes, background launches. Compare against iTerm2, not cmux.
