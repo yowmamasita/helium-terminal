@@ -216,9 +216,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
 /// Lays out the fixed-width sidebar and the terminal area.
 private final class ContainerView: NSView {
-    static let sidebarWidth: CGFloat = 240
     let sidebar: NSView
     let content: NSView
+    private let handle = ResizeHandle()
+
+    /// Sidebar width, dragged by the user and remembered across launches.
+    private var sidebarWidth: CGFloat = {
+        let saved = UserDefaults.standard.double(forKey: "SidebarWidth")
+        return saved > 0 ? saved : 240
+    }()
 
     init(sidebar: NSView, content: NSView) {
         self.sidebar = sidebar
@@ -226,16 +232,47 @@ private final class ContainerView: NSView {
         super.init(frame: .zero)
         addSubview(sidebar)
         addSubview(content)
+        addSubview(handle)
+        handle.onDrag = { [weak self] x in self?.resizeSidebar(to: x) }
+        handle.onDragEnd = { [weak self] in
+            guard let self else { return }
+            UserDefaults.standard.set(Double(self.sidebarWidth), forKey: "SidebarWidth")
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    private func resizeSidebar(to x: CGFloat) {
+        // Keep the sidebar readable and leave the terminal at least 300 pt.
+        sidebarWidth = min(max(x, 160), max(160, min(520, bounds.width - 300)))
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
-        let w = Self.sidebarWidth
+        let w = sidebarWidth
         sidebar.frame = NSRect(x: 0, y: 0, width: w, height: bounds.height)
+        handle.frame = NSRect(x: w - 3, y: 0, width: 6, height: bounds.height)
         // Leave room for the transparent titlebar above the terminal.
         let top = window.map { $0.frame.height - $0.contentLayoutRect.height } ?? 28
         content.frame = NSRect(x: w, y: 0, width: bounds.width - w, height: bounds.height - top)
     }
+}
+
+/// Invisible strip on the sidebar's edge that resizes it.
+private final class ResizeHandle: NSView {
+    /// Called with the mouse's x in the superview while dragging.
+    var onDrag: ((CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let sv = superview else { return }
+        onDrag?(sv.convert(event.locationInWindow, from: nil).x)
+    }
+
+    override func mouseUp(with event: NSEvent) { onDragEnd?() }
 }
