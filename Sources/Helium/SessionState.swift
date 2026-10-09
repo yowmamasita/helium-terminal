@@ -66,6 +66,12 @@ extension MainWindowController {
         try? data.write(to: SessionState.url, options: .atomic)
     }
 
+    /// The command typed into an agent pane on relaunch, unless resuming that agent is turned off.
+    private static func resumeInput(_ agent: AgentSession?) -> String? {
+        guard let agent, AgentSession.resumeEnabled(agent.kind) else { return nil }
+        return agent.resumeCommand + "\n"
+    }
+
     /// Rebuilds saved tabs; returns false when there was nothing to restore.
     func restore(_ state: SessionState) -> Bool {
         guard !state.tabs.isEmpty else { return false }
@@ -75,7 +81,7 @@ extension MainWindowController {
             guard case let .split(vertical, ratio, first, second) = node, let app = Ghostty.shared.app else { return }
             let leaf = second.firstPane
             let new = PaneView(surface: SurfaceView(app: app, workingDirectory: leaf.agent?.cwd ?? leaf.cwd,
-                                                    initialInput: leaf.agent.map { $0.resumeCommand + "\n" }))
+                                                    initialInput: Self.resumeInput(leaf.agent)))
             ws.split(pane, with: new, vertical ? GHOSTTY_SPLIT_DIRECTION_RIGHT : GHOSTTY_SPLIT_DIRECTION_DOWN)
             if let split = new.superview as? NSSplitView { ratios.append((split, ratio)) }
             build(first, in: pane, ws)
@@ -84,7 +90,7 @@ extension MainWindowController {
 
         for tab in state.tabs {
             let leaf = tab.firstPane
-            guard let ws = newWorkspace(cwd: leaf.agent?.cwd ?? leaf.cwd, initialInput: leaf.agent.map { $0.resumeCommand + "\n" }),
+            guard let ws = newWorkspace(cwd: leaf.agent?.cwd ?? leaf.cwd, initialInput: Self.resumeInput(leaf.agent)),
                   let pane = ws.panes.first else { continue }
             build(tab, in: pane, ws)
         }

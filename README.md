@@ -52,7 +52,11 @@ Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders n
 Claude Code or Codex resume the same conversation: Helium types `claude --resume <id>` or `codex resume <id>` with
 the flags the agent was started with (model, permission mode and so on), minus any initial prompt. Other programs
 start fresh, because a process can't outlive the app. Closing the window instead of quitting starts clean next
-time. Turn it off in Settings.
+time.
+
+Settings, Helium tab, Session restore: turn restoring off, turn resuming off for Claude Code or Codex separately,
+or change the resume command. Templates take `{id}`, `{flags}` and `{cwd}`; the defaults are
+`claude {flags} --resume {id}` and `codex resume {id} {flags}`, so `cc --resume {id}` uses your own alias.
 
 Helium finds Claude Code's session from `~/.claude/sessions/<pid>.json`, and Codex's from the session log the
 running process keeps open. It saves the layout every few seconds and on quit to

@@ -13,12 +13,39 @@ struct AgentSession: Codable, Equatable {
     var flags: [String]
 
     /// Typed into a fresh shell on relaunch, so the agent picks up the same conversation.
-    var resumeCommand: String {
-        let words: [String] = switch kind {
-        case .claude: ["claude"] + flags + ["--resume", sessionID]
-        case .codex: ["codex", "resume", sessionID] + flags
+    /// Typed into a fresh shell on relaunch, using the template from Settings.
+    var resumeCommand: String { resumeCommand(template: Self.template(for: kind)) }
+
+    /// Fills `{id}`, `{flags}` and `{cwd}` (shell-quoted) into a command template.
+    func resumeCommand(template: String) -> String {
+        var t = template
+        // With no flags, take the placeholder's separating space with it instead of leaving a gap.
+        if flags.isEmpty { t = t.replacingOccurrences(of: " {flags}", with: "").replacingOccurrences(of: "{flags} ", with: "") }
+        return t
+            .replacingOccurrences(of: "{id}", with: Self.shellQuote(sessionID))
+            .replacingOccurrences(of: "{flags}", with: flags.map(Self.shellQuote).joined(separator: " "))
+            .replacingOccurrences(of: "{cwd}", with: Self.shellQuote(cwd ?? "."))
+    }
+
+    static func defaultTemplate(for kind: Kind) -> String {
+        switch kind {
+        case .claude: "claude {flags} --resume {id}"
+        case .codex: "codex resume {id} {flags}"
         }
-        return words.map(Self.shellQuote).joined(separator: " ")
+    }
+
+    static func templateKey(for kind: Kind) -> String { "ResumeCommand.\(kind.rawValue)" }
+    static func enabledKey(for kind: Kind) -> String { "Resume.\(kind.rawValue)" }
+
+    /// The user's template from Settings, or the default when unset or blank.
+    static func template(for kind: Kind) -> String {
+        let t = UserDefaults.standard.string(forKey: templateKey(for: kind))?.trimmingCharacters(in: .whitespaces) ?? ""
+        return t.isEmpty ? defaultTemplate(for: kind) : t
+    }
+
+    /// Whether sessions of this agent are resumed on relaunch (Settings; on by default).
+    static func resumeEnabled(_ kind: Kind) -> Bool {
+        UserDefaults.standard.object(forKey: enabledKey(for: kind)) as? Bool ?? true
     }
 
     static func shellQuote(_ s: String) -> String {

@@ -53,4 +53,18 @@ final class SessionTests: XCTestCase {
         let argv = try XCTUnwrap(Agents.arguments(of: pid))
         XCTAssertEqual((argv.first as NSString?)?.lastPathComponent, "claude")
     }
+
+    func testResumeTemplates() {
+        let s = AgentSession(kind: .claude, sessionID: "abc", cwd: "/my repo", flags: ["--model", "opus"])
+        XCTAssertEqual(s.resumeCommand(template: AgentSession.defaultTemplate(for: .claude)),
+                       "claude --model opus --resume abc")
+        XCTAssertEqual(s.resumeCommand(template: "cc --resume {id}"), "cc --resume abc")
+        XCTAssertEqual(s.resumeCommand(template: "cd {cwd} && claude {flags} -r {id}"),
+                       "cd '/my repo' && claude --model opus -r abc")
+        let spaced = AgentSession(kind: .claude, sessionID: "abc", cwd: "/a  b", flags: [])
+        XCTAssertEqual(spaced.resumeCommand(template: "cd {cwd} && claude {flags} --resume {id}"),
+                       "cd '/a  b' && claude --resume abc")
+        let none = AgentSession(kind: .codex, sessionID: "x", cwd: nil, flags: [])
+        XCTAssertEqual(none.resumeCommand(template: AgentSession.defaultTemplate(for: .codex)), "codex resume x")
+    }
 }

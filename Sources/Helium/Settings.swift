@@ -305,11 +305,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             [weak self] _ in self?.showUpdateState()
         }
 
-        let restore = NSButton(checkboxWithTitle: "Reopen tabs and resume Claude Code and Codex sessions after quitting",
-                               target: self, action: #selector(restoreToggled(_:)))
-        restore.state = SessionState.restoreEnabled ? .on : .off
-
-        let stack = NSStackView(views: [grid, restore, updates, behavior])
+        let stack = NSStackView(views: [grid, sessionRestoreSection(), updates, behavior])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 18
@@ -318,7 +314,77 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
     private let updateStatus = NSTextField(labelWithString: "")
 
-    @objc private func restoreToggled(_ sender: NSButton) { SessionState.restoreEnabled = sender.state == .on }
+    // MARK: Session restore
+
+    private var agentControls: [NSControl] = []
+
+    private func sessionRestoreSection() -> NSView {
+        let heading = NSTextField(labelWithString: "Session restore")
+        heading.font = .boldSystemFont(ofSize: 13)
+        let restore = NSButton(checkboxWithTitle: "Reopen tabs and splits after quitting (⌘Q)",
+                               target: self, action: #selector(restoreToggled(_:)))
+        restore.state = SessionState.restoreEnabled ? .on : .off
+
+        let grid = NSGridView()
+        grid.rowSpacing = 8
+        grid.columnSpacing = 10
+        for (kind, name) in [(AgentSession.Kind.claude, "Claude Code"), (.codex, "Codex")] {
+            let toggle = NSButton(checkboxWithTitle: "Resume \(name) sessions with", target: self,
+                                  action: #selector(agentResumeToggled(_:)))
+            toggle.state = AgentSession.resumeEnabled(kind) ? .on : .off
+            toggle.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
+            let field = NSTextField()
+            field.placeholderString = AgentSession.defaultTemplate(for: kind)
+            field.stringValue = UserDefaults.standard.string(forKey: AgentSession.templateKey(for: kind)) ?? ""
+            field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            field.widthAnchor.constraint(equalToConstant: 300).isActive = true
+            field.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
+            field.target = self
+            field.action = #selector(templateChanged(_:))
+            field.isEnabled = toggle.state == .on
+            agentControls += [toggle, field]
+            grid.addRow(with: [toggle, field])
+        }
+        let hint = label("{id} is the session, {flags} the flags the agent was started with, {cwd} its folder. "
+                         + "Leave empty for the default. Other programs always start fresh.", secondary: true)
+        setAgentControlsEnabled(SessionState.restoreEnabled)
+
+        let stack = NSStackView(views: [heading, restore, grid, hint])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        return stack
+    }
+
+    private func setAgentControlsEnabled(_ on: Bool) {
+        for c in agentControls {
+            // A template field is usable only when restore and its own agent toggle are on.
+            if c is NSButton { c.isEnabled = on; continue }
+            let kind = AgentSession.Kind(rawValue: c.identifier?.rawValue ?? "") ?? .claude
+            c.isEnabled = on && AgentSession.resumeEnabled(kind)
+        }
+    }
+
+    @objc private func restoreToggled(_ sender: NSButton) {
+        SessionState.restoreEnabled = sender.state == .on
+        setAgentControlsEnabled(sender.state == .on)
+    }
+
+    @objc private func agentResumeToggled(_ sender: NSButton) {
+        guard let kind = AgentSession.Kind(rawValue: sender.identifier?.rawValue ?? "") else { return }
+        UserDefaults.standard.set(sender.state == .on, forKey: AgentSession.enabledKey(for: kind))
+        setAgentControlsEnabled(SessionState.restoreEnabled)
+    }
+
+    @objc private func templateChanged(_ sender: NSTextField) {
+        guard let kind = AgentSession.Kind(rawValue: sender.identifier?.rawValue ?? "") else { return }
+        let t = sender.stringValue.trimmingCharacters(in: .whitespaces)
+        if t.isEmpty {
+            UserDefaults.standard.removeObject(forKey: AgentSession.templateKey(for: kind))
+        } else {
+            UserDefaults.standard.set(t, forKey: AgentSession.templateKey(for: kind))
+        }
+    }
 
     @objc private func autoUpdateToggled(_ sender: NSButton) { Updater.shared.automatic = sender.state == .on }
 
