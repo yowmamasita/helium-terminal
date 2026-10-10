@@ -25,7 +25,9 @@
   .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
 
   header { padding: 80px 0 24px; }
-  header img.logo { width: 56px; height: 56px; filter: grayscale(1); }
+  .logo { position: relative; width: 56px; height: 56px; border: 2px solid currentColor; font-weight: 700; }
+  .logo b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; letter-spacing: -0.02em; }
+  .logo i { position: absolute; top: 3px; left: 5px; font: 600 9px/1 -apple-system, sans-serif; color: var(--muted); }
   h1 { font-size: 1.75rem; line-height: 1.2; margin: 20px 0 8px; font-weight: 600; letter-spacing: -0.01em; }
   .tagline { color: var(--muted); margin: 0 0 16px; }
   .links { margin: 0; }
@@ -46,7 +48,7 @@
   td.win { font-weight: 600; }
   .note { color: var(--muted); font-size: 0.875rem; margin-top: 12px; }
 
-  pre { background: var(--code); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 6px 0 16px; }
+  pre { background: var(--code); padding: 12px 14px; overflow-x: auto; margin: 6px 0 16px; }
   h3 { font-size: 0.875rem; font-weight: 500; color: var(--muted); margin: 0; }
 
   footer { padding: 72px 0 48px; color: var(--muted); font-size: 0.875rem; }
@@ -57,7 +59,7 @@
 <div class="wrap">
 
 <header>
-  <img class="logo" src="logo.png" alt="Helium Terminal icon: a periodic-table tile reading He" width="56" height="56">
+  <div class="logo" role="img" aria-label="Helium Terminal icon: a periodic-table tile reading He"><i>2</i><b>He</b></div>
   <h1>Helium Terminal</h1>
   <p class="tagline">A tiny macOS terminal for running coding agents. See at a glance which agent is working, which one is done, and which one is waiting for you. Built on libghostty, native Swift and AppKit, 15 MB, MIT licensed.</p>
   <p class="links"><a href="#install">Install</a> &middot; <a href="https://github.com/yowmamasita/helium-terminal">GitHub</a></p>
