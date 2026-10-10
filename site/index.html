@@ -12,110 +12,55 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="favicon.png">
 <style>
-  :root {
-    --bg: #0d0f15;
-    --bg-raised: #151924;
-    --border: #252b3a;
-    --text: #e8ecf4;
-    --muted: #9aa3b5;
-    --accent: #8cd9ff;
-    --accent-strong: #5ab8f0;
-    --orange: #ff9f43;
-    --green: #4cd97b;
-    --code-bg: #10131b;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f7f8fb;
-      --bg-raised: #ffffff;
-      --border: #e1e5ee;
-      --text: #121620;
-      --muted: #5b6475;
-      --accent: #0a84c6;
-      --accent-strong: #0670a8;
-      --orange: #d9730d;
-      --green: #1f9d4c;
-      --code-bg: #eef1f6;
-    }
+  :root { --bg: #fff; --text: #111; --muted: #666; --line: #e5e5e5; --code: #f5f5f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0a0a0a; --text: #ededed; --muted: #8f8f8f; --line: #262626; --code: #161616; }
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.88em; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; }
+  a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--muted); }
+  a:hover { text-decoration-color: currentColor; }
+  code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.875em; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px; }
 
-  header { padding: 72px 0 40px; text-align: center; }
-  header img.logo { width: 112px; height: 112px; }
-  h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.1; margin: 20px 0 12px; letter-spacing: -0.02em; }
-  .tagline { font-size: clamp(1.1rem, 2.4vw, 1.35rem); color: var(--muted); max-width: 680px; margin: 0 auto 28px; }
-  .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 10px; margin-bottom: 30px; }
-  .fact { border: 1px solid var(--border); background: var(--bg-raised); border-radius: 999px; padding: 4px 14px; font-size: 0.85rem; color: var(--muted); }
-  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
-  .button { display: inline-block; padding: 11px 22px; border-radius: 10px; font-weight: 600; border: 1px solid var(--border); color: var(--text); background: var(--bg-raised); }
-  .button.primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
-  .button:hover { text-decoration: none; filter: brightness(1.08); }
+  header { padding: 80px 0 24px; }
+  header img.logo { width: 56px; height: 56px; filter: grayscale(1); }
+  h1 { font-size: 1.75rem; line-height: 1.2; margin: 20px 0 8px; font-weight: 600; letter-spacing: -0.01em; }
+  .tagline { color: var(--muted); margin: 0 0 16px; }
+  .links { margin: 0; }
+  .shot { margin: 48px 0 0; }
+  .shot img { width: 100%; height: auto; display: block; }
 
-  .shot { margin: 40px auto 0; }
-  .shot img { width: 100%; height: auto; display: block; border-radius: 14px; }
+  section { padding: 56px 0 0; }
+  h2 { font-size: 1rem; font-weight: 600; margin: 0 0 16px; }
+  .lede { color: var(--muted); margin: 0 0 24px; }
+  dl { margin: 0; }
+  dt { font-weight: 600; margin-top: 18px; }
+  dd { margin: 2px 0 0; color: var(--muted); }
 
-  section { padding: 64px 0 8px; }
-  h2 { font-size: clamp(1.6rem, 3.2vw, 2.1rem); letter-spacing: -0.01em; margin: 0 0 10px; }
-  .lede { color: var(--muted); margin: 0 0 32px; max-width: 720px; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
-  .card { background: var(--bg-raised); border: 1px solid var(--border); border-radius: 14px; padding: 22px 22px 18px; }
-  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
-  .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
-  .pill { display: inline-block; font-size: 0.72rem; font-weight: 700; border-radius: 5px; padding: 1px 7px; vertical-align: 2px; }
-  .pill.orange { background: var(--orange); color: #fff; }
-  .pill.green { background: #30d158; color: #000; }
-
-  table { width: 100%; border-collapse: collapse; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-  th, td { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--border); }
-  tr:last-child td { border-bottom: 0; }
-  th { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 500; color: var(--muted); font-size: 0.875rem; }
   td.num { font-variant-numeric: tabular-nums; }
-  td.win { color: var(--green); font-weight: 600; }
-  .note { color: var(--muted); font-size: 0.85rem; margin-top: 12px; }
+  td.win { font-weight: 600; }
+  .note { color: var(--muted); font-size: 0.875rem; margin-top: 12px; }
 
-  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; overflow-x: auto; margin: 0 0 14px; }
-  .soon { display: inline-block; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 999px; padding: 2px 12px; font-size: 0.8rem; color: var(--orange); margin-left: 8px; vertical-align: 4px; }
-  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
-  .cols h3 { margin: 0 0 8px; font-size: 1.05rem; }
+  pre { background: var(--code); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 6px 0 16px; }
+  h3 { font-size: 0.875rem; font-weight: 500; color: var(--muted); margin: 0; }
 
-  footer { padding: 72px 0 48px; color: var(--muted); font-size: 0.9rem; text-align: center; }
-  footer p { margin: 6px 0; }
-
-  @media (max-width: 600px) {
-    header { padding-top: 48px; }
-    th, td { padding: 12px 10px; font-size: 0.92rem; }
-  }
+  footer { padding: 72px 0 48px; color: var(--muted); font-size: 0.875rem; }
+  footer p { margin: 4px 0; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header>
-  <img class="logo" src="logo.png" alt="Helium Terminal icon: a periodic-table tile reading He" width="112" height="112">
+  <img class="logo" src="logo.png" alt="Helium Terminal icon: a periodic-table tile reading He" width="56" height="56">
   <h1>Helium Terminal</h1>
-  <p class="tagline">A tiny macOS terminal for running coding agents. See at a glance which agent is working, which one is done, and which one is waiting for you.</p>
-  <div class="facts">
-    <span class="fact">Built on libghostty</span>
-    <span class="fact">Native Swift and AppKit</span>
-    <span class="fact">15 MB</span>
-    <span class="fact">Open source, MIT</span>
-  </div>
-  <div class="cta">
-    <a class="button primary" href="#install">Install</a>
-    <a class="button" href="https://github.com/yowmamasita/helium-terminal">View on GitHub</a>
-  </div>
+  <p class="tagline">A tiny macOS terminal for running coding agents. See at a glance which agent is working, which one is done, and which one is waiting for you. Built on libghostty, native Swift and AppKit, 15 MB, MIT licensed.</p>
+  <p class="links"><a href="#install">Install</a> &middot; <a href="https://github.com/yowmamasita/helium-terminal">GitHub</a></p>
   <div class="shot">
     <img src="screenshot.png" width="1406" height="866" alt="Helium Terminal: a sidebar of tabs showing git branches, folders, listening ports and agent notifications, with an agent transcript and a dev server in split panes and a blue notification ring on the dev server pane">
   </div>
@@ -124,40 +69,24 @@
 <section id="features">
   <h2>Built for a terminal full of agents</h2>
   <p class="lede">When Claude Code, Codex and a few dev servers run side by side, the hard part is knowing where to look. Helium keeps that in the sidebar.</p>
-  <div class="grid">
-    <div class="card">
-      <h3>Tabs that tell you what's happening</h3>
-      <p>Vertical tabs show each terminal's title, folder and listening ports, refreshed in the background. Above the terminal: the git branch, how far it is ahead or behind, and whether there are uncommitted changes.</p>
-    </div>
-    <div class="card">
-      <h3><span class="pill orange">needs input</span> when an agent is blocked</h3>
-      <p>Permission prompts and approval requests from Claude Code and Codex light the pane and its tab up in orange until you answer. Everything else gets a quiet <span class="pill green">green</span> ring.</p>
-    </div>
-    <div class="card">
-      <h3>Quit without losing your agents</h3>
-      <p>Press Cmd+Q and Helium brings back your tabs, splits and folders next time, resuming every Claude Code and Codex conversation with the flags it was started with.</p>
-    </div>
-    <div class="card">
-      <h3>Splits, groups and labels</h3>
-      <p>Split any tab horizontally or vertically. Collapse related tabs into Chrome-style groups, add Gmail-style colored labels, or give a tab its own name with a double-click.</p>
-    </div>
-    <div class="card">
-      <h3>Scriptable from the inside</h3>
-      <p>The <code>helium</code> command and a local socket open tabs, split panes, type into them and send notifications. Every pane knows its own ID, so an agent hook can ring the right one.</p>
-    </div>
-    <div class="card">
-      <h3>Your Ghostty config, as is</h3>
-      <p>Fonts, themes and keybinds come from your existing Ghostty config. Settings covers the common options and lists every one of Ghostty's 600+ options with its documentation.</p>
-    </div>
-    <div class="card">
-      <h3>Light enough to forget about</h3>
-      <p>Hidden tabs and covered windows stop rendering and hand their GPU memory back. A window in the background goes quiet instead of blinking its cursor.</p>
-    </div>
-    <div class="card">
-      <h3>Updates you can trust</h3>
-      <p>Helium updates itself from GitHub releases, and only installs a build that is signed by the same developer and notarized by Apple. It never restarts on its own.</p>
-    </div>
-  </div>
+  <dl>
+    <dt>Tabs that tell you what's happening</dt>
+    <dd>Vertical tabs show each terminal's title, folder and listening ports, refreshed in the background. Above the terminal: the git branch, how far it is ahead or behind, and whether there are uncommitted changes.</dd>
+    <dt>A ring when an agent is blocked</dt>
+    <dd>Permission prompts and approval requests from Claude Code and Codex light the pane and its tab up in orange until you answer. Everything else gets a quiet green ring.</dd>
+    <dt>Quit without losing your agents</dt>
+    <dd>Press Cmd+Q and Helium brings back your tabs, splits and folders next time, resuming every Claude Code and Codex conversation with the flags it was started with.</dd>
+    <dt>Splits, groups and labels</dt>
+    <dd>Split any tab horizontally or vertically. Collapse related tabs into Chrome-style groups, add Gmail-style colored labels, or give a tab its own name with a double-click.</dd>
+    <dt>Scriptable from the inside</dt>
+    <dd>The <code>helium</code> command and a local socket open tabs, split panes, type into them and send notifications. Every pane knows its own ID, so an agent hook can ring the right one.</dd>
+    <dt>Your Ghostty config, as is</dt>
+    <dd>Fonts, themes and keybinds come from your existing Ghostty config. Settings covers the common options and lists every one of Ghostty's 600+ options with its documentation.</dd>
+    <dt>Light enough to forget about</dt>
+    <dd>Hidden tabs and covered windows stop rendering and hand their GPU memory back. A window in the background goes quiet instead of blinking its cursor.</dd>
+    <dt>Updates you can trust</dt>
+    <dd>Helium updates itself from GitHub releases, and only installs a build that is signed by the same developer and notarized by Apple. It never restarts on its own.</dd>
+  </dl>
 </section>
 
 <section id="performance">
@@ -176,19 +105,12 @@
 </section>
 
 <section id="install">
-  <h2>Install <span class="soon">coming with the first release</span></h2>
+  <h2>Install</h2>
   <p class="lede">Apple Silicon, macOS 13 or later. Both install the app and the <code>helium</code> command.</p>
-  <div class="cols">
-    <div>
-      <h3>Homebrew</h3>
-      <pre><code>brew install --cask yowmamasita/tap/helium-terminal</code></pre>
-    </div>
-    <div>
-      <h3>zerobrew</h3>
-      <pre><code>zb install yowmamasita/tap/helium-terminal</code></pre>
-    </div>
-  </div>
-  <p class="note">Until then, build it from source with Xcode and Zig 0.16.0: <code>scripts/build-ghostty.sh</code>, then <code>scripts/install-local.sh</code>. See the <a href="https://github.com/yowmamasita/helium-terminal#readme">README</a>.</p>
+  <h3>Homebrew</h3>
+  <pre><code>brew install --cask yowmamasita/tap/helium-terminal</code></pre>
+  <h3>zerobrew</h3>
+  <pre><code>zb install yowmamasita/tap/helium-terminal</code></pre>
 </section>
 
 <footer>
