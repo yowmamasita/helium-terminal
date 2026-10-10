@@ -15,7 +15,7 @@
 - A Unix socket API, plus the `helium` command-line tool
 - Rendering by libghostty (Metal), configured by your existing Ghostty config (`~/.config/ghostty/config`)
 
-![Helium Terminal: four tabs in the sidebar showing git branches, folders, listening ports and agent notifications; an agent transcript and a dev server in splits, with a blue notification ring on the dev server pane](docs/screenshot.png)
+![Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders, a listening port and notification edges, next to an agent transcript, a dev server and a shell in split panes with a green notification ring](docs/screenshot.png)
 
 ## Install
 
