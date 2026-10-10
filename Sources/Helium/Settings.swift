@@ -331,26 +331,6 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         grid.column(at: 0).xPlacement = .trailing
         grid.columnSpacing = 12
 
-        let behavior = label("""
-        Notifications: a pane gets a blue ring, and its tab a dot and the message, when a program \
-        sends a desktop notification (OSC 9 or OSC 777), rings the bell, or runs `helium notify`. \
-        The ring clears when you focus the pane. When an agent is blocked on your permission or input, \
-        the ring is orange and the tab shows "needs input" until you type in that pane.
-
-        Sidebar: branch, folder and listening ports refresh every 3 seconds, read from git files \
-        and the process table without running any commands.
-
-        Rendering: hidden tabs, and windows that are covered or minimized, stop drawing and \
-        release their GPU memory. A window in the background stops blinking its cursor.
-
-        Automation: the `helium` command and the socket at \(SocketServer.path) (owner only). \
-        Each pane sets $HELIUM_PANE, so `helium notify` from inside a pane rings that pane.
-
-        Keys come from your Ghostty keybinds: ⌘T new tab, ⌘D split right, ⇧⌘D split down, \
-        ⌘W close, ⌘1–9 switch tab, ⌘[ and ⌘] previous and next split, ⌘, settings.
-        """, secondary: true)
-        behavior.preferredMaxLayoutWidth = 560
-
         let auto = NSButton(checkboxWithTitle: "Check for updates automatically", target: self,
                             action: #selector(autoUpdateToggled(_:)))
         auto.state = Updater.shared.automatic ? .on : .off
@@ -368,7 +348,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         }
         if Updater.shared.unavailableReason == nil { showUpdateState() } // the updater may already be ready
 
-        let stack = NSStackView(views: [grid, sessionRestoreSection(), updates, behavior])
+        let stack = NSStackView(views: [grid, sessionRestoreSection(), updates])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 18
