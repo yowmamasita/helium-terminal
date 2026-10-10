@@ -34,12 +34,8 @@
   .shot { margin: 48px 0 0; }
   .shot img { width: 100%; height: auto; display: block; }
 
-  section { padding: 56px 0 0; }
-  h2 { font-size: 1rem; font-weight: 600; margin: 0 0 16px; }
-  .lede { color: var(--muted); margin: 0 0 24px; }
-  dl { margin: 0; }
-  dt { font-weight: 600; margin-top: 18px; }
-  dd { margin: 2px 0 0; color: var(--muted); }
+  section { padding: 40px 0 0; }
+  section p { margin: 0 0 16px; }
 
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -61,39 +57,22 @@
 <header>
   <div class="logo" role="img" aria-label="Helium Terminal icon: a periodic-table tile reading He"><i>2</i><b>He</b></div>
   <h1>Helium Terminal</h1>
-  <p class="tagline">A tiny macOS terminal for running coding agents. See at a glance which agent is working, which one is done, and which one is waiting for you. Built on libghostty, native Swift and AppKit, 15 MB, MIT licensed.</p>
+  <p class="tagline">A tiny macOS terminal for running coding agents. It's built on libghostty with native Swift and AppKit, and the whole app is 15 MB.</p>
   <p class="links"><a href="#install">Install</a> &middot; <a href="https://github.com/yowmamasita/helium-terminal">GitHub</a></p>
   <div class="shot">
-    <img src="screenshot.png" width="1406" height="866" alt="Helium Terminal: a sidebar of tabs showing git branches, folders, listening ports and agent notifications, with an agent transcript and a dev server in split panes and a blue notification ring on the dev server pane">
+    <img src="screenshot.png" width="1400" height="930" alt="Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders, a listening port and notification edges, next to an agent transcript, a dev server and a shell in split panes with a green notification ring">
   </div>
 </header>
 
 <section id="features">
-  <h2>Built for a terminal full of agents</h2>
-  <p class="lede">When Claude Code, Codex and a few dev servers run side by side, the hard part is knowing where to look. Helium keeps that in the sidebar.</p>
-  <dl>
-    <dt>Tabs that tell you what's happening</dt>
-    <dd>Vertical tabs show each terminal's title, folder and listening ports, refreshed in the background. Above the terminal: the git branch, how far it is ahead or behind, and whether there are uncommitted changes.</dd>
-    <dt>A ring when an agent is blocked</dt>
-    <dd>Permission prompts and approval requests from Claude Code and Codex light the pane and its tab up in orange until you answer. Everything else gets a quiet green ring.</dd>
-    <dt>Quit without losing your agents</dt>
-    <dd>Press Cmd+Q and Helium brings back your tabs, splits and folders next time, resuming every Claude Code and Codex conversation with the flags it was started with.</dd>
-    <dt>Splits, groups and labels</dt>
-    <dd>Split any tab horizontally or vertically. Collapse related tabs into Chrome-style groups, add Gmail-style colored labels, or give a tab its own name with a double-click.</dd>
-    <dt>Scriptable from the inside</dt>
-    <dd>The <code>helium</code> command and a local socket open tabs, split panes, type into them and send notifications. Every pane knows its own ID, so an agent hook can ring the right one.</dd>
-    <dt>Your Ghostty config, as is</dt>
-    <dd>Fonts, themes and keybinds come from your existing Ghostty config. Settings covers the common options and lists every one of Ghostty's 600+ options with its documentation.</dd>
-    <dt>Light enough to forget about</dt>
-    <dd>Hidden tabs and covered windows stop rendering and hand their GPU memory back. A window in the background goes quiet instead of blinking its cursor.</dd>
-    <dt>Updates you can trust</dt>
-    <dd>Helium updates itself from GitHub releases, and only installs a build that is signed by the same developer and notarized by Apple. It never restarts on its own.</dd>
-  </dl>
+  <p>When Claude Code, Codex and a few dev servers run side by side, the sidebar tells you where to look. Every tab shows its title, folder and listening ports, and the strip above the terminal shows the git branch, how far it's ahead or behind, and whether there are uncommitted changes. A pane blocked on a permission prompt or an approval request lights up orange, and so does its tab, until you answer it. Everything else gets a quiet green ring that clears when you look at it.</p>
+  <p>Press Cmd+Q and Helium brings your tabs, splits and folders back next time, and resumes every Claude Code and Codex conversation with the flags it was started with. Tabs go into Chrome-style groups that collapse, take colored labels, and get their own name with a double-click. Every tab splits horizontally and vertically.</p>
+  <p>The <code>helium</code> command and a local socket open tabs, split panes, type into them and send notifications. Every pane knows its own ID through <code>$HELIUM_PANE</code>, so an agent hook rings the right one.</p>
+  <p>Fonts, themes and keybinds come from your Ghostty config as is. Settings covers the common options and lists all 600+ of Ghostty's with their docs. Hidden tabs and covered windows stop rendering and give their GPU memory back. Updates come from GitHub releases, and Helium only installs a build signed by the same developer and notarized by Apple. It never restarts on its own.</p>
 </section>
 
 <section id="performance">
-  <h2>Lighter than iTerm2</h2>
-  <p class="lede">Measured on Apple Silicon with both apps launched in the background on a fresh state, one terminal each, no input.</p>
+  <p>Here it is next to iTerm2 3.7 on Apple Silicon, both launched in the background on a fresh state with one terminal each and no input.</p>
   <table>
     <thead><tr><th></th><th>Helium</th><th>iTerm2 3.7</th></tr></thead>
     <tbody>
@@ -103,16 +82,16 @@
       <tr><td>Idle CPU</td><td class="num win">0.1 to 0.3%</td><td class="num">1.9 to 2.4%</td></tr>
     </tbody>
   </table>
-  <p class="note">Medians of five launches. iTerm2's memory includes its session server. A covered or minimized Helium window stops rendering and frees its GPU buffers. The script is <a href="https://github.com/yowmamasita/helium-terminal/tree/main/bench">in the repo</a>.</p>
+  <p class="note">Medians of five launches, and iTerm2's memory includes its session server. The script is <a href="https://github.com/yowmamasita/helium-terminal/tree/main/bench">in the repo</a>.</p>
 </section>
 
 <section id="install">
-  <h2>Install</h2>
-  <p class="lede">Apple Silicon, macOS 13 or later. Both install the app and the <code>helium</code> command.</p>
+  <p>It runs on Apple Silicon with macOS 13 or later. Both of these install the app and the <code>helium</code> command.</p>
   <h3>Homebrew</h3>
   <pre><code>brew install --cask yowmamasita/tap/helium-terminal</code></pre>
   <h3>zerobrew</h3>
   <pre><code>zb install yowmamasita/tap/helium-terminal</code></pre>
+  <p>Send me feedback on <a href="https://github.com/yowmamasita/helium-terminal/issues">GitHub</a>!</p>
 </section>
 
 <footer>
