@@ -9,6 +9,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     // Two separate freezes, so one ending can't unfreeze the other.
     private var renaming = false
     private var popoverOpen = false
+    private var dragging = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -96,14 +97,14 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
                       labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
         }
         // A group header goes before the first tab of each group; tabs of collapsed groups are hidden.
-        var items: [(sig: String, make: () -> NSView)] = []
+        var items: [(sig: String, kind: Item, make: () -> NSView)] = []
         var lastGroup: TabGroup?
         for model in rows {
             if let g = model.ws.group, g !== lastGroup {
                 let members = rows.filter { $0.ws.group === g }
                 let header = GroupHeader.Model(group: g, count: members.count,
                                                unread: members.contains { $0.unread }, waiting: members.contains { $0.waiting })
-                items.append((header.signature, { [weak self] in
+                items.append((header.signature, .header(g, first: model.ws), { [weak self] in
                     let h = GroupHeader(header, actions: self?.actions)
                     h.sidebar = self
                     self?.headers[g.id] = h
@@ -112,7 +113,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             }
             lastGroup = model.ws.group
             if model.ws.group?.collapsed == true { continue }
-            items.append((model.signature, { [weak self] in
+            items.append((model.signature, .row(model.ws), { [weak self] in
                 let row = Row(model) { [weak self] in self?.onSelect?(model.ws) }
                 row.actions = self?.actions
                 row.sidebar = self
@@ -128,8 +129,9 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         // The poll timer calls this every few seconds; skip rebuilding when nothing changed.
         let sig = items.map(\.sig).joined(separator: "\u{1}")
         // Rebuilding would throw away a title being edited; the end of editing triggers an update.
-        guard sig != lastSignature, !renaming, !popoverOpen else { return }
+        guard sig != lastSignature, !renaming, !popoverOpen, !dragging else { return }
         lastSignature = sig
+        kinds = items.map(\.kind)
 
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         headers = [:]
@@ -142,6 +144,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     }
 
     weak var actions: TabGroupActions?
+    private var kinds: [Item] = []
     private var headers: [String: GroupHeader] = [:]
     private var rowViews: [ObjectIdentifier: Row] = [:]
 
@@ -174,6 +177,71 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         popoverOpen = false
         lastSignature = ""
         actions?.groupsChanged()
+    }
+
+    // MARK: Drag to reorder
+
+    /// What a view in the stack shows; a header carries its group's first tab, to drop in front of.
+    enum Item {
+        case header(TabGroup, first: Workspace)
+        case row(Workspace)
+    }
+
+    private let dropLine: NSView = {
+        let v = NSView()
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        v.layer?.cornerRadius = 1
+        return v
+    }()
+
+    /// The gap between stack items nearest the pointer, 0 being above the first.
+    private func slot(at event: NSEvent) -> Int {
+        stack.arrangedSubviews.firstIndex { v in
+            let p = v.convert(event.locationInWindow, from: nil)
+            return v.isFlipped ? p.y < v.bounds.midY : p.y > v.bounds.midY
+        } ?? stack.arrangedSubviews.count
+    }
+
+    func dragMoved(_ row: NSView, _ event: NSEvent) {
+        if !dragging {
+            dragging = true
+            row.alphaValue = 0.5
+            stack.superview?.addSubview(dropLine)
+        }
+        _ = (stack.superview?.superview as? NSClipView)?.autoscroll(with: event)
+        let views = stack.arrangedSubviews
+        let i = slot(at: event)
+        // Halfway into the spacing between the items on either side of the gap.
+        let y: CGFloat = i < views.count ? views[i].frame.minY - stack.spacing / 2 : (views.last?.frame.maxY ?? 0) + 1
+        let doc = stack.superview!
+        dropLine.frame = doc.convert(NSRect(x: 4, y: y - 1, width: stack.bounds.width + 8, height: 2), from: stack)
+    }
+
+    func dragEnded(_ ws: Workspace, _ event: NSEvent) {
+        guard dragging else { return }
+        dragging = false
+        dropLine.removeFromSuperview()
+        lastSignature = "" // the dragged row is dimmed; rebuild even if the order stays
+        let t = Self.dropTarget(kinds, slot: slot(at: event))
+        actions?.move(ws, before: t.before, group: t.group)
+    }
+
+    /// Where a tab dropped into gap `slot` goes: in front of `before` (nil: the end), in `group`. A tab joins a group
+    /// when dropped between two of its tabs or right under its expanded header, and leaves it anywhere else.
+    static func dropTarget(_ items: [Item], slot: Int) -> (before: Workspace?, group: TabGroup?) {
+        let above = slot > 0 ? items[slot - 1] : nil
+        let below = slot < items.count ? items[slot] : nil
+        let before: Workspace? = switch below {
+        case .header(_, let first): first
+        case .row(let ws): ws
+        case nil: nil
+        }
+        switch (above, below) {
+        case (.header(let g, _), _) where !g.collapsed: return (before, g)
+        case (.row(let a), .row(let b)) where a.group != nil && a.group === b.group: return (before, a.group)
+        default: return (before, nil)
+        }
     }
 
     private static func abbreviate(_ path: String) -> String {
@@ -297,8 +365,25 @@ private final class Row: NSView, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    private var downAt: NSPoint?
+    private var dragging = false
+
     override func mouseDown(with event: NSEvent) {
+        downAt = event.locationInWindow
         if event.clickCount == 2 { beginEditing() } else { onClick() }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        // A few points of slack so a shaky click doesn't count as a drag.
+        guard let d = downAt else { return }
+        dragging = dragging || hypot(event.locationInWindow.x - d.x, event.locationInWindow.y - d.y) > 4
+        if dragging { sidebar?.dragMoved(self, event) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        downAt = nil
+        if dragging { sidebar?.dragEnded(ws, event) }
+        dragging = false
     }
 
     // MARK: Title editing
@@ -482,6 +567,7 @@ protocol TabGroupActions: AnyObject {
     func closeGroup(_ group: TabGroup)
     func newTab(in group: TabGroup)
     func groupsChanged()
+    func move(_ ws: Workspace, before: Workspace?, group: TabGroup?)
 }
 
 /// A group's header: chevron, colored name pill, and when collapsed the tab count and any attention signal.

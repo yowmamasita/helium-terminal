@@ -479,6 +479,16 @@ extension MainWindowController: TabGroupActions {
         select(ws)
     }
 
+    /// A sidebar drag: puts `ws` in front of `before` (nil: at the end) and into `group`.
+    func move(_ ws: Workspace, before: Workspace?, group: TabGroup?) {
+        guard let old = workspaces.firstIndex(where: { $0 === ws }) else { return }
+        workspaces.remove(at: old)
+        ws.group = group
+        let at = before === ws ? old : before.flatMap { b in workspaces.firstIndex { $0 === b } } ?? workspaces.count
+        workspaces.insert(ws, at: at)
+        regroup()
+    }
+
     func groupsChanged() {
         metadataChanged()
         saveState() // a group's name or color
