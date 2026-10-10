@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Helium Terminal</title>
-<meta name="description" content="A tiny macOS terminal for running coding agents. Vertical tabs that show what every agent is doing, notification rings, splits, session restore for Claude Code and Codex. Built on libghostty, native Swift and AppKit, 15 MB.">
+<meta name="description" content="A tiny macOS terminal for coding agents, built on libghostty.">
 <meta property="og:title" content="Helium Terminal">
-<meta property="og:description" content="A tiny macOS terminal for running coding agents, built on libghostty.">
+<meta property="og:description" content="A tiny macOS terminal for coding agents, built on libghostty.">
 <meta property="og:image" content="https://helium-terminal.bensarmiento.com/screenshot.png">
 <meta property="og:url" content="https://helium-terminal.bensarmiento.com/">
 <meta name="twitter:card" content="summary_large_image">
@@ -45,9 +45,8 @@
   .note { color: var(--muted); font-size: 0.875rem; margin-top: 12px; }
 
   pre { background: var(--code); padding: 12px 14px; overflow-x: auto; margin: 6px 0 16px; }
-  h3 { font-size: 0.875rem; font-weight: 500; color: var(--muted); margin: 0; }
 
-  footer { padding: 72px 0 48px; color: var(--muted); font-size: 0.875rem; }
+  footer { padding: 48px 0 48px; color: var(--muted); font-size: 0.875rem; }
   footer p { margin: 4px 0; }
 </style>
 </head>
@@ -57,46 +56,38 @@
 <header>
   <div class="logo" role="img" aria-label="Helium Terminal icon: a periodic-table tile reading He"><i>2</i><b>He</b></div>
   <h1>Helium Terminal</h1>
-  <p class="tagline">A tiny macOS terminal for running coding agents. It's built on libghostty with native Swift and AppKit, and the whole app is 15 MB.</p>
+  <p class="tagline">A tiny macOS terminal for coding agents, built on libghostty.</p>
   <p class="links"><a href="#install">Install</a> &middot; <a href="https://github.com/yowmamasita/helium-terminal">GitHub</a></p>
   <div class="shot">
-    <img src="screenshot.png" width="1400" height="930" alt="Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders, a listening port and notification edges, next to an agent transcript, a dev server and a shell in split panes with a green notification ring">
+    <img src="screenshot.webp" fetchpriority="high" width="1400" height="930" alt="Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders, a listening port and notification edges, next to an agent transcript, a dev server and a shell in split panes with a green notification ring">
   </div>
 </header>
 
 <section id="features">
-  <p>When Claude Code, Codex and a few dev servers run side by side, the sidebar tells you where to look. Every tab shows its title, folder and listening ports, and the strip above the terminal shows the git branch, how far it's ahead or behind, and whether there are uncommitted changes. A pane blocked on a permission prompt or an approval request lights up orange, and so does its tab, until you answer it. Everything else gets a quiet green ring that clears when you look at it.</p>
-  <p>Press Cmd+Q and Helium brings your tabs, splits and folders back next time, and resumes every Claude Code and Codex conversation with the flags it was started with. Tabs go into Chrome-style groups that collapse, take colored labels, and get their own name with a double-click. Every tab splits horizontally and vertically.</p>
-  <p>The <code>helium</code> command and a local socket open tabs, split panes, type into them and send notifications. Every pane knows its own ID through <code>$HELIUM_PANE</code>, so an agent hook rings the right one.</p>
-  <p>Fonts, themes and keybinds come from your Ghostty config as is. Settings covers the common options and lists all 600+ of Ghostty's with their docs. Hidden tabs and covered windows stop rendering and give their GPU memory back. Updates come from GitHub releases, and Helium only installs a build signed by the same developer and notarized by Apple. It never restarts on its own.</p>
+  <p>The sidebar shows every tab's branch, folder and ports. A pane waiting on you turns orange until you answer. Tabs split, group and take labels, and your Claude Code and Codex sessions come back after a quit.</p>
 </section>
 
 <section id="performance">
-  <p>Here it is next to iTerm2 3.7 on Apple Silicon, both launched in the background on a fresh state with one terminal each and no input.</p>
   <table>
     <thead><tr><th></th><th>Helium</th><th>iTerm2 3.7</th></tr></thead>
     <tbody>
-      <tr><td>App size</td><td class="num win">15 MB</td><td class="num">176 MB</td></tr>
-      <tr><td>Launch until the window appears</td><td class="num win">~250 ms</td><td class="num">~570 ms</td></tr>
-      <tr><td>Idle memory, one terminal</td><td class="num win">62 MB</td><td class="num">203 MB</td></tr>
-      <tr><td>Idle CPU</td><td class="num win">0.1 to 0.3%</td><td class="num">1.9 to 2.4%</td></tr>
+      <tr><td>Size</td><td class="num win">15 MB</td><td class="num">176 MB</td></tr>
+      <tr><td>Launch</td><td class="num win">~250 ms</td><td class="num">~570 ms</td></tr>
+      <tr><td>Idle memory</td><td class="num win">62 MB</td><td class="num">203 MB</td></tr>
+      <tr><td>Idle CPU</td><td class="num win">~0.2%</td><td class="num">~2%</td></tr>
     </tbody>
   </table>
-  <p class="note">Medians of five launches, and iTerm2's memory includes its session server. The script is <a href="https://github.com/yowmamasita/helium-terminal/tree/main/bench">in the repo</a>.</p>
+  <p class="note">Apple Silicon, median of five launches. <a href="https://github.com/yowmamasita/helium-terminal/tree/main/bench">Script</a>.</p>
 </section>
 
 <section id="install">
-  <p>It runs on Apple Silicon with macOS 13 or later. Both of these install the app and the <code>helium</code> command.</p>
-  <h3>Homebrew</h3>
   <pre><code>brew install --cask yowmamasita/tap/helium-terminal</code></pre>
-  <h3>zerobrew</h3>
   <pre><code>zb install yowmamasita/tap/helium-terminal</code></pre>
-  <p>Send me feedback on <a href="https://github.com/yowmamasita/helium-terminal/issues">GitHub</a>!</p>
+  <p class="note">Apple Silicon, macOS 13 or later.</p>
 </section>
 
 <footer>
-  <p><a href="https://github.com/yowmamasita/helium-terminal">GitHub</a> &middot; MIT License &middot; Made by <a href="https://bensarmiento.com">Ben Sarmiento</a></p>
-  <p>Rendering by <a href="https://ghostty.org">libghostty</a>, from the Ghostty project by Mitchell Hashimoto and contributors.</p>
+  <p><a href="https://github.com/yowmamasita/helium-terminal">GitHub</a> &middot; MIT &middot; <a href="https://bensarmiento.com">Ben Sarmiento</a> &middot; Rendering by <a href="https://ghostty.org">libghostty</a></p>
 </footer>
 
 </div>
