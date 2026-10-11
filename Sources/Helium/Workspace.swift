@@ -132,6 +132,14 @@ final class Workspace {
     var focusedPane: PaneView? { focused ?? panes.first }
     var unread: Bool { panes.contains { $0.ringing } }
     var waiting: Bool { panes.contains { $0.waiting } }
+    var working: Bool { panes.contains { Self.isWorking(title: $0.surface.title) } }
+
+    /// Agents animate a glyph at the start of the title during a turn: Claude Code ◐◓◑◒ (✳ when idle),
+    /// Codex a braille spinner.
+    static func isWorking(title: String) -> Bool {
+        guard let c = title.unicodeScalars.first else { return false }
+        return "◐◓◑◒".unicodeScalars.contains(c) || (0x2801...0x28FF).contains(c.value)
+    }
 
     /// Agent notifications that mean "blocked until you answer" (Claude Code, Codex and similar),
     /// shown as a badge rather than as message text.

@@ -93,7 +93,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         let rows = workspaces.enumerated().map { i, ws in
             Row.Model(ws: ws, index: i + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
                       ports: ws.ports, notification: ws.notification,
-                      unread: ws.unread, waiting: ws.waiting, selected: ws === selected,
+                      unread: ws.unread, waiting: ws.waiting, working: ws.working, selected: ws === selected,
                       labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
         }
         // A group header goes before the first tab of each group; tabs of collapsed groups are hidden.
@@ -103,7 +103,8 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             if let g = model.ws.group, g !== lastGroup {
                 let members = rows.filter { $0.ws.group === g }
                 let header = GroupHeader.Model(group: g, count: members.count,
-                                               unread: members.contains { $0.unread }, waiting: members.contains { $0.waiting })
+                                               unread: members.contains { $0.unread }, waiting: members.contains { $0.waiting },
+                                               working: members.contains { $0.working })
                 items.append((header.signature, .header(g, first: model.ws), { [weak self] in
                     let h = GroupHeader(header, actions: self?.actions)
                     h.sidebar = self
@@ -268,12 +269,13 @@ private final class Row: NSView, NSTextFieldDelegate {
         let notification: String?
         let unread: Bool
         let waiting: Bool
+        let working: Bool
         let selected: Bool
         let labels: [TabLabel]
         let group: TabGroup?
 
         var signature: String {
-            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(waiting)|\(selected)|"
+            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(waiting)|\(working)|\(selected)|"
                 + labels.map { $0.name + ":" + $0.color }.joined(separator: ",") + "|" + (group.map { $0.id + $0.color } ?? "")
         }
     }
@@ -344,11 +346,11 @@ private final class Row: NSView, NSTextFieldDelegate {
                 bar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             ])
         }
-        if m.waiting || m.unread {
-            // Orange: an agent is blocked on the user. Green: news. Shown as the row's right edge.
+        if m.waiting || m.unread || m.working {
+            // Orange: an agent is blocked on the user. Green: news. Blue: an agent is working. Shown as the row's right edge.
             let edge = NSView()
             edge.wantsLayer = true
-            edge.layer?.backgroundColor = (m.waiting ? NSColor.systemOrange : .systemGreen).cgColor
+            edge.layer?.backgroundColor = (m.waiting ? NSColor.systemOrange : m.unread ? .systemGreen : .systemBlue).cgColor
             edge.layer?.cornerRadius = 1.5
             edge.translatesAutoresizingMaskIntoConstraints = false
             addSubview(edge)
@@ -577,9 +579,10 @@ private final class GroupHeader: NSView {
         let count: Int
         let unread: Bool
         let waiting: Bool
+        let working: Bool
 
         var signature: String {
-            "group|\(group.id)|\(group.name)|\(group.color)|\(group.collapsed)|\(count)|\(unread)|\(waiting)"
+            "group|\(group.id)|\(group.name)|\(group.color)|\(group.collapsed)|\(count)|\(unread)|\(waiting)|\(working)"
         }
     }
 
@@ -622,11 +625,11 @@ private final class GroupHeader: NSView {
             badge.layer?.cornerRadius = 4
             badge.layer?.masksToBounds = true
             views.append(badge)
-        } else if m.group.collapsed && m.unread {
+        } else if m.group.collapsed && (m.unread || m.working) {
             let dot = NSView()
             dot.wantsLayer = true
             dot.layer?.cornerRadius = 4
-            dot.layer?.backgroundColor = NSColor.systemGreen.cgColor
+            dot.layer?.backgroundColor = (m.unread ? NSColor.systemGreen : .systemBlue).cgColor
             dot.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
             views.append(dot)

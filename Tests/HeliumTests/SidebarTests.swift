@@ -48,6 +48,15 @@ final class SidebarTests: XCTestCase {
         }
     }
 
+    func testWorkingAgentIsRecognized() {
+        for t in ["◐ Fix the build", "◑ Fix the build", "⠋ codex", "⠐ Fix the build"] {
+            XCTAssertTrue(Workspace.isWorking(title: t), t)
+        }
+        for t in ["✳ Fix the build", "zsh", "", "⠀ blank braille"] {
+            XCTAssertFalse(Workspace.isWorking(title: t), t)
+        }
+    }
+
     /// Renders an expanded and a collapsed group; HELIUM_SNAPSHOT_GROUPS=path writes a PNG.
     func testGroupsRender() throws {
         let api = TabGroup(name: "API", color: "Blue")
