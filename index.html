@@ -59,12 +59,15 @@
   <p class="tagline">A tiny macOS terminal for coding agents, built on libghostty.</p>
   <p class="links"><a href="#install">Install</a> &middot; <a href="https://github.com/yowmamasita/helium-terminal">GitHub</a></p>
   <div class="shot">
-    <img src="screenshot.webp" fetchpriority="high" width="1400" height="930" alt="Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders, a listening port and notification edges, next to an agent transcript, a dev server and a shell in split panes with a green notification ring">
+    <picture>
+      <source srcset="screenshot.webp" media="(prefers-reduced-motion: reduce)">
+      <img src="demo.webp" fetchpriority="high" width="1400" height="930" alt="Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders and a listening port. The tab where an agent is working has a slowly pulsing blue edge, the tab waiting on the user blinks orange, and a finished deploy shows a green edge. Next to it, the agent's transcript, a dev server and a shell in split panes">
+    </picture>
   </div>
 </header>
 
 <section id="features">
-  <p>The sidebar shows every tab's branch, folder and ports. A pane waiting on you turns orange until you answer. Tabs split, group and take labels, and your Claude Code and Codex sessions come back after a quit.</p>
+  <p>The sidebar shows every tab's branch, folder and ports. A tab pulses blue while its agent works, and one waiting on you blinks orange until you answer. Tabs split, group and take labels, and your Claude Code and Codex sessions come back after a quit.</p>
 </section>
 
 <section id="performance">
