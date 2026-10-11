@@ -10,12 +10,13 @@
 
 - A sidebar of vertical tabs showing the title, cwd and listening ports, with the selected tab's git branch,
   ahead/behind counts and uncommitted changes above the terminal
-- A green ring on a pane, and a green edge on its tab, when the pane needs attention (the message is the tab's tooltip)
+- A green ring on a pane, and a green edge on its tab, when the pane needs attention (the message is the tab's tooltip);
+  a blinking orange edge when an agent is blocked on you, and a pulsing blue edge while Claude Code or Codex is working
 - Horizontal and vertical splits inside each tab
 - A Unix socket API, plus the `helium` command-line tool
 - Rendering by libghostty (Metal), configured by your existing Ghostty config (`~/.config/ghostty/config`)
 
-![Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders, a listening port and notification edges, next to an agent transcript, a dev server and a shell in split panes with a green notification ring](docs/screenshot.png)
+![Helium Terminal: a sidebar with an auth tab group, a collapsed docs group, colored labels, folders and a listening port. The tab where an agent is working has a pulsing blue edge, the tab waiting on the user blinks orange, and a finished deploy shows a green edge. Next to it, the agent's transcript, a dev server and a shell in split panes](docs/demo.webp)
 
 ## Install
 
@@ -101,11 +102,15 @@ focus the pane.
 Claude Code's "Claude is waiting for your input" reminder, sent about a minute after a turn ends, shows as
 "Done, waiting for you". When the message means an agent is blocked on you (Claude's "needs your permission",
 Codex's "Approval requested" or "wants to edit", "needs input" and similar), the pane gets an orange ring and its tab an orange right edge
-instead. It stays until you type into that pane. For Claude Code, add a hook:
+instead, and the edge blinks. It stays until you type into that pane. For Claude Code, add a hook:
 
 ```json
 { "hooks": { "Notification": [{ "hooks": [{ "type": "command", "command": "helium notify --title Claude \"needs input\"" }] }] } }
 ```
+
+While Claude Code or Codex is working, its tab gets a pulsing blue right edge. Helium reads this from the spinner
+both agents put at the start of the terminal title during a turn (Claude Code ◐◓◑◒, Codex a braille spinner), so
+it needs no hook and no polling. The edges stay still when Reduce Motion is on.
 
 ## CLI / socket API
 
