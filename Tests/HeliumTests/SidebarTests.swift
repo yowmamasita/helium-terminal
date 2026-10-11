@@ -48,6 +48,15 @@ final class SidebarTests: XCTestCase {
         }
     }
 
+    func testAttentionColorsPersistAndReset() {
+        defer { Attention.reset() }
+        Attention.working.color = .systemPurple
+        XCTAssertEqual(Attention.working.color, .systemPurple)
+        XCTAssertEqual(Attention.waiting.color, .systemOrange)
+        Attention.reset()
+        XCTAssertEqual(Attention.working.color, .systemBlue)
+    }
+
     func testWorkingAgentIsRecognized() {
         for t in ["◐ Fix the build", "◑ Fix the build", "⠋ codex", "⠐ Fix the build"] {
             XCTAssertTrue(Workspace.isWorking(title: t), t)

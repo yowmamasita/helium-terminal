@@ -110,7 +110,7 @@ instead, and the edge blinks. It stays until you type into that pane. For Claude
 
 While Claude Code or Codex is working, its tab gets a pulsing blue right edge. Helium reads this from the spinner
 both agents put at the start of the terminal title during a turn (Claude Code ◐◓◑◒, Codex a braille spinner), so
-it needs no hook and no polling. The edges stay still when Reduce Motion is on.
+it needs no hook and no polling. The edges stay still when Reduce Motion is on. Settings > General sets all three colors.
 
 ## CLI / socket API
 

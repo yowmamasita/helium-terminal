@@ -156,7 +156,11 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        // Row colors are resolved when a row is built; rebuild them for the new appearance.
+        rebuildColors()
+    }
+
+    /// Row colors are resolved when a row is built; rebuild them for a new appearance or attention colors.
+    func rebuildColors() {
         lastSignature = ""
         actions?.groupsChanged()
     }
@@ -350,7 +354,7 @@ private final class Row: NSView, NSTextFieldDelegate {
             // Orange: an agent is blocked on the user. Green: news. Blue: an agent is working. Shown as the row's right edge.
             let edge = NSView()
             edge.wantsLayer = true
-            edge.layer?.backgroundColor = (m.waiting ? NSColor.systemOrange : m.unread ? .systemGreen : .systemBlue).cgColor
+            edge.layer?.backgroundColor = (m.waiting ? Attention.waiting : m.unread ? .news : .working).color.cgColor
             edge.layer?.cornerRadius = 1.5
             edge.translatesAutoresizingMaskIntoConstraints = false
             addSubview(edge)
@@ -633,7 +637,7 @@ private final class GroupHeader: NSView {
             badge.font = .systemFont(ofSize: 10, weight: .semibold)
             badge.textColor = .white
             badge.drawsBackground = true
-            badge.backgroundColor = .systemOrange
+            badge.backgroundColor = Attention.waiting.color
             badge.wantsLayer = true
             badge.layer?.cornerRadius = 4
             badge.layer?.masksToBounds = true
@@ -642,7 +646,7 @@ private final class GroupHeader: NSView {
             let dot = NSView()
             dot.wantsLayer = true
             dot.layer?.cornerRadius = 4
-            dot.layer?.backgroundColor = (m.unread ? NSColor.systemGreen : .systemBlue).cgColor
+            dot.layer?.backgroundColor = (m.unread ? Attention.news : .working).color.cgColor
             dot.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
             views.append(dot)

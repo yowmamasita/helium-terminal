@@ -72,6 +72,7 @@ enum HeliumConfig {
 
 extension Notification.Name {
     static let heliumSidebarWidthChanged = Notification.Name("HeliumSidebarWidthChanged")
+    static let heliumAttentionColorsChanged = Notification.Name("HeliumAttentionColorsChanged")
 }
 
 final class SettingsWindow: NSWindowController, NSWindowDelegate {
@@ -328,8 +329,20 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
                              target: self, action: #selector(sidebarWidthChanged(_:)))
         width.widthAnchor.constraint(equalToConstant: 240).isActive = true
         let grid = NSGridView(views: [[rowLabel("Sidebar width"), width]])
+        for (a, title) in [(Attention.working, "Agent working"), (.waiting, "Waiting for you"), (.news, "Notification")] {
+            let well = NSColorWell(frame: NSRect(x: 0, y: 0, width: 44, height: 24))
+            well.color = a.color
+            well.identifier = NSUserInterfaceItemIdentifier(a.rawValue)
+            well.target = self
+            well.action = #selector(attentionColorChanged(_:))
+            well.widthAnchor.constraint(equalToConstant: 44).isActive = true
+            attentionWells.append(well)
+            grid.addRow(with: [rowLabel(title), well])
+        }
+        grid.addRow(with: [NSGridCell.emptyContentView, button("Reset Colors", #selector(resetAttentionColors))])
         grid.column(at: 0).xPlacement = .trailing
         grid.columnSpacing = 12
+        grid.rowSpacing = 8
 
         let auto = NSButton(checkboxWithTitle: "Check for updates automatically", target: self,
                             action: #selector(autoUpdateToggled(_:)))
@@ -356,6 +369,16 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     }
 
     private let updateStatus = NSTextField(labelWithString: "")
+    private var attentionWells: [NSColorWell] = []
+
+    @objc private func attentionColorChanged(_ sender: NSColorWell) {
+        Attention(rawValue: sender.identifier?.rawValue ?? "")?.color = sender.color
+    }
+
+    @objc private func resetAttentionColors() {
+        Attention.reset()
+        for w in attentionWells { w.color = Attention(rawValue: w.identifier?.rawValue ?? "")?.color ?? w.color }
+    }
 
     // MARK: Session restore
 

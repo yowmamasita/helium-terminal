@@ -25,6 +25,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.contentView = container
         sidebar.onSelect = { [weak self] ws in self?.select(ws) }
         sidebar.actions = self
+        NotificationCenter.default.addObserver(forName: .heliumAttentionColorsChanged, object: nil, queue: .main) {
+            [weak self] _ in
+            guard let self else { return }
+            self.workspaces.flatMap(\.panes).forEach { $0.updateRing() }
+            self.sidebar.rebuildColors()
+        }
 
         // Branch and port metadata changes outside the terminal, so poll it.
         // Only the cheap file and libproc reads in Metadata run here; no subprocesses.

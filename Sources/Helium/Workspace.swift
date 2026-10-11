@@ -22,9 +22,9 @@ final class PaneView: NSView {
         didSet { updateRing() }
     }
 
-    private func updateRing() {
+    func updateRing() {
         ring.isHidden = !ringing && !waiting
-        ring.layer?.borderColor = (waiting ? NSColor.systemOrange : NSColor.systemGreen).cgColor
+        ring.layer?.borderColor = (waiting ? Attention.waiting.color : Attention.news.color).cgColor
     }
 
     func userTyped() {
@@ -94,10 +94,41 @@ private final class RingView: NSView {
         wantsLayer = true
         layer?.borderWidth = 2
         layer?.cornerRadius = 4
-        layer?.borderColor = NSColor.systemGreen.cgColor
     }
     required init?(coder: NSCoder) { fatalError("not used") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The colors of the rings and sidebar edges, set in Settings > General.
+enum Attention: String, CaseIterable {
+    case working, waiting, news
+
+    var defaultColor: NSColor {
+        switch self {
+        case .working: .systemBlue
+        case .waiting: .systemOrange
+        case .news: .systemGreen
+        }
+    }
+
+    private var key: String { "AttentionColor." + rawValue }
+
+    var color: NSColor {
+        get {
+            UserDefaults.standard.data(forKey: key)
+                .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: $0) } ?? defaultColor
+        }
+        nonmutating set {
+            UserDefaults.standard.set(try? NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true),
+                                      forKey: key)
+            NotificationCenter.default.post(name: .heliumAttentionColorsChanged, object: nil)
+        }
+    }
+
+    static func reset() {
+        allCases.forEach { UserDefaults.standard.removeObject(forKey: $0.key) }
+        NotificationCenter.default.post(name: .heliumAttentionColorsChanged, object: nil)
+    }
 }
 
 /// A sidebar tab: a tree of panes built from nested NSSplitViews.
