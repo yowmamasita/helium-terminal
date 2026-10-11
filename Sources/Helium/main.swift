@@ -28,6 +28,17 @@ if args.isEmpty, isatty(STDIN_FILENO) != 0 {
     exit(0)
 }
 
+// Panes inherit this environment, and `open` passes on its caller's. Opened from a Claude Code session,
+// Claude in every pane would see itself as that session's child and skip ~/.claude/sessions/<pid>.json,
+// which session restore reads (issue #1). It would also inherit the parent's messaging token.
+// ponytail: the variables Claude Code 2.1.296 sets for its children; extend if a newer version adds more.
+for name in ["CLAUDECODE", "AI_AGENT", "CLAUDE_PID", "CLAUDE_EFFORT", "CLAUDE_CODE_ENTRYPOINT",
+             "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION",
+             "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET",
+             "CLAUDE_CODE_MESSAGING_TOKEN"] {
+    unsetenv(name)
+}
+
 guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
     FileHandle.standardError.write("helium: ghostty_init failed\n".data(using: .utf8)!)
     exit(1)
