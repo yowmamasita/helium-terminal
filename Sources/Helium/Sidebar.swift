@@ -360,6 +360,19 @@ private final class Row: NSView, NSTextFieldDelegate {
                 edge.topAnchor.constraint(equalTo: topAnchor, constant: 4),
                 edge.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             ])
+            // Working breathes slowly, blocked blinks faster; green news stays still.
+            if (m.waiting || m.working), !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let pulse = CABasicAnimation(keyPath: "opacity")
+                pulse.fromValue = 1
+                pulse.toValue = m.waiting ? 0.15 : 0.3
+                pulse.duration = m.waiting ? 0.5 : 0.9
+                pulse.autoreverses = true
+                pulse.repeatCount = .infinity
+                pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // Rows are rebuilt on every spinner frame of the title; a clock-based phase keeps the pulse smooth.
+                pulse.timeOffset = CACurrentMediaTime().truncatingRemainder(dividingBy: pulse.duration * 2)
+                edge.layer?.add(pulse, forKey: "pulse")
+            }
         }
         setAccessibilityRole(.button)
         setAccessibilityLabel(m.waiting ? "\(m.title), needs input" : m.title)
