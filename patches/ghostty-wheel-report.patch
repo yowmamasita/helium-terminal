@@ -1,0 +1,20 @@
+diff --git a/src/Surface.zig b/src/Surface.zig
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3689,9 +3689,14 @@
+ 
+         // If we're scrolling up or down, then send a mouse event.
+         if (self.isMouseReporting()) {
+-            for (0..@abs(y.delta)) |_| {
++            // helium-terminal: like iTerm2, a wheel notch reports the rounded OS delta (at least 1),
++            // without mouse-scroll-multiplier, which the app would otherwise compound with its own speed.
++            const y_report: ScrollAmount = if (scroll_mods.precision or yoff == 0) y else .{
++                .delta = @as(isize, @intFromFloat(std.math.sign(yoff) * @max(@round(@abs(yoff)), 1))),
++            };
++            for (0..y_report.magnitude()) |_| {
+                 const pos = try self.rt_surface.getCursorPos();
+-                self.mouseReport(switch (y.direction()) {
++                self.mouseReport(switch (y_report.direction()) {
+                     .up_right => .four,
+                     .down_left => .five,
+                 }, .press, self.mouse.mods, pos);

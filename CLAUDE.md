@@ -24,6 +24,10 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   40% slower), with `-Dsentry=false -Di18n=false`. The renderer is patched to double buffering, and the swap chain surface that
   isn't on screen is marked purgeable (volatile) between frames, which takes about 26 MB off idle memory for a
   full-screen window. Every frame is a full redraw, so a reclaimed surface loses nothing.
+- **Scrolling patches:** libghostty keeps the sub-row scroll remainder (upstream drops it, so fast trackpad
+  scrolls fall short), and in mouse-reporting apps a wheel notch sends iTerm2's count of wheel reports (rounded
+  OS delta, at least 1) without `mouse-scroll-multiplier`. Upstream multiplies, which makes Claude Code's
+  fullscreen TUI jump.
 - **Ghostty themes aren't bundled** (2.6 MB). Users put themes in `~/.config/ghostty/themes`.
 - **Config:** the user's Ghostty config loads first, then `~/Library/Application Support/helium-terminal/config`,
   which Settings writes. Never rewrite the user's Ghostty config; it may be shared with Ghostty.app.
