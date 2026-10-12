@@ -91,7 +91,7 @@ Copies installed with zerobrew (or as a Homebrew formula) and development builds
 
 Keys come from Ghostty's default keybinds (or your own Ghostty config): cmd+t new tab, cmd+d split right,
 cmd+shift+d split down, cmd+w close, cmd+1..9 switch tab, cmd+[ / cmd+] previous/next split,
-cmd+opt+arrows move between splits.
+cmd+opt+arrows move between splits, cmd+shift+t reopen the last closed tab or group (resuming its agents).
 
 ## Notifications
 

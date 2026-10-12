@@ -7,6 +7,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     private let sidebar = SidebarView()
     private let content = NSView()
     private var pollTimer: Timer?
+    /// Closed tabs, newest last, for ⌘⇧T. Kept in memory only, like the session's other undo history.
+    private var closedTabs: [SessionState] = []
 
     init() {
         let window = NSWindow(
@@ -89,7 +91,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         if ws.panes.contains(where: { $0.surface.needsConfirmQuit }),
            !confirm("Close this tab?", "A process is still running in it.") { return }
         guard confirmDeletingGroup(closing: ws) else { return }
+        rememberClosed([ws])
         ws.panes.forEach { close($0) }
+    }
+
+    /// A closed group is one entry, so ⌘⇧T brings all of it back, as in Chrome.
+    private func rememberClosed(_ tabs: [Workspace]) {
+        closedTabs.append(captureState(tabs))
+        if closedTabs.count > 25 { closedTabs.removeFirst() }
+    }
+
+    /// Chrome's ⌘⇧T: reopens the last closed tab with its splits, title, labels and group, resuming its agents.
+    /// False when nothing was closed, so the key goes on to the terminal.
+    func reopenClosedTab() -> Bool {
+        guard let state = closedTabs.popLast() else { return false }
+        _ = restore(state)
+        saveState()
+        return true
     }
 
     // MARK: Panes
@@ -119,6 +137,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         // Closing the last pane closes the tab; ask about its group only when the user closed it.
         if let ws = pane.workspace, ws.panes.count == 1, !view.processExited,
            !confirmDeletingGroup(closing: ws) { return }
+        if let ws = pane.workspace, ws.panes.count == 1 { rememberClosed([ws]) }
         close(pane)
     }
 
@@ -173,7 +192,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Keeps each group's tabs together, at the position of the group's first tab.
-    private func regroup() {
+    func regroup() {
         var out: [Workspace] = []
         var emitted = Set<String>()
         for ws in workspaces {
@@ -476,6 +495,7 @@ extension MainWindowController: TabGroupActions {
         let members = workspaces.filter { $0.group === group }
         if members.flatMap(\.panes).contains(where: { $0.surface.needsConfirmQuit }),
            !confirm("Close this group?", "Processes are still running in its tabs.") { return }
+        rememberClosed(members)
         members.flatMap(\.panes).forEach { close($0) }
     }
 

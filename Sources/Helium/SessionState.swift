@@ -52,7 +52,8 @@ struct SessionState: Codable, Equatable {
 }
 
 extension MainWindowController {
-    func captureState() -> SessionState {
+    /// `tabs` defaults to all of them; closing one tab captures just that tab for reopening.
+    func captureState(_ tabs: [Workspace]? = nil) -> SessionState {
         func node(_ v: NSView) -> SessionState.Node? {
             if let p = v as? PaneView { return .pane(cwd: p.surface.pwd, agent: p.agent) }
             guard let s = v as? NSSplitView, s.arrangedSubviews.count == 2,
@@ -63,11 +64,11 @@ extension MainWindowController {
             let first = s.isVertical ? s.arrangedSubviews[0].frame.width : s.arrangedSubviews[0].frame.height
             return .split(vertical: s.isVertical, ratio: total > 0 ? Double(first / total) : 0.5, first: a, second: b)
         }
-        let saved = workspaces.compactMap { ws in node(ws.root).map { (ws, $0) } }
+        let saved = (tabs ?? workspaces).compactMap { ws in node(ws.root).map { (ws, $0) } }
         let selected = saved.firstIndex { $0.0 === self.selected } ?? 0 // an index into the saved tabs
         return SessionState(tabs: saved.map(\.1), selected: selected,
                             titles: saved.map(\.0.customTitle), labels: saved.map(\.0.labels),
-                            groups: groups.map { .init(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed) },
+                            groups: groups.filter { g in saved.contains { $0.0.group === g } }.map { .init(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed) },
                             tabGroups: saved.map(\.0.group?.id))
     }
 
@@ -96,8 +97,10 @@ extension MainWindowController {
         Self.restoring = true
         defer { Self.restoring = false }
         var ratios: [(NSSplitView, Double)] = []
+        // A reopened tab rejoins its group when that group is still open.
+        let open = Dictionary(self.groups.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let groups = Dictionary((state.groups ?? []).map {
-            ($0.id, TabGroup(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed))
+            ($0.id, open[$0.id] ?? TabGroup(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed))
         }, uniquingKeysWith: { a, _ in a })
 
         func build(_ node: SessionState.Node, in pane: PaneView, _ ws: Workspace) {
@@ -122,6 +125,7 @@ extension MainWindowController {
             ws.labels = state.labels?[safe: i] ?? []
             ws.group = (state.tabGroups?[safe: i] ?? nil).flatMap { groups[$0] }
         }
+        regroup()
         let collapsed = groups.values.filter(\.collapsed)
         if let selectedTab { select(selectedTab) }
         collapsed.forEach { $0.collapsed = true } // selecting a tab expands its group; keep saved collapses

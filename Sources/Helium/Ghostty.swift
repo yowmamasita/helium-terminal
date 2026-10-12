@@ -97,6 +97,8 @@ final class Ghostty {
             window.closeWorkspace(containing: view)
         case GHOSTTY_ACTION_CLOSE_WINDOW, GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
             window.window?.performClose(nil)
+        case GHOSTTY_ACTION_UNDO: // ⌘⇧T and ⌘Z in libghostty's default keybinds
+            return window.reopenClosedTab()
         case GHOSTTY_ACTION_GOTO_TAB:
             window.gotoWorkspace(Int(a.goto_tab.rawValue))
         case GHOSTTY_ACTION_GOTO_SPLIT:
