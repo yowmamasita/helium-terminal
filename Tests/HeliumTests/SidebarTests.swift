@@ -189,4 +189,22 @@ final class SidebarTests: XCTestCase {
         }
         XCTAssertTrue(actions.addedTo === b)
     }
+
+    /// A click on a row's text (title, cwd, chips) must select the tab, like a click on its empty space.
+    func testClickOnRowTextSelectsTab() throws {
+        let ws = Workspace(); ws.customTitle = "a long title to click on"
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 300))
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = sidebar
+        sidebar.update([ws], selected: nil)
+        sidebar.layoutSubtreeIfNeeded()
+        func find(_ v: NSView) -> NSTextField? {
+            (v as? NSTextField).flatMap { $0.stringValue == ws.title ? $0 : nil } ?? v.subviews.lazy.compactMap(find).first
+        }
+        let title = try XCTUnwrap(find(sidebar))
+        let p = title.convert(NSPoint(x: 10, y: title.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(sidebar.hitTest(sidebar.convert(p, from: nil)))
+        XCTAssertFalse(hit is NSTextField, "the title label must not take the click")
+        XCTAssertTrue(hit.acceptsFirstMouse(for: nil), "a click must select even when the window isn't key")
+    }
 }

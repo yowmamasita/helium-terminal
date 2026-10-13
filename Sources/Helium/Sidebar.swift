@@ -387,6 +387,14 @@ private final class Row: NSView, NSTextFieldDelegate {
     private var downAt: NSPoint?
     private var dragging = false
 
+    // Labels would take clicks on the row's text; only the title being renamed keeps its own.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        return titleField.currentEditor() != nil && hit.isDescendant(of: titleField) ? hit : self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func mouseDown(with event: NSEvent) {
         downAt = event.locationInWindow
         if event.clickCount == 2 { beginEditing() } else { onClick() }
@@ -415,7 +423,12 @@ private final class Row: NSView, NSTextFieldDelegate {
         titleField.backgroundColor = .textBackgroundColor
         titleField.stringValue = ws.customTitle ?? ws.title
         // Freeze the sidebar only if editing really began; otherwise it would never end and unfreeze.
-        guard window?.makeFirstResponder(titleField) == true, titleField.currentEditor() != nil else { return }
+        guard window?.makeFirstResponder(titleField) == true, titleField.currentEditor() != nil else {
+            titleField.isEditable = false
+            titleField.isSelectable = false
+            titleField.drawsBackground = false
+            return
+        }
         onEditing?(true)
         titleField.currentEditor()?.selectAll(nil)
     }
@@ -675,7 +688,13 @@ private final class GroupHeader: NSView {
         pill.textColor = g.textColor
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func mouseDown(with event: NSEvent) {
+        // The second click of a double-click would undo the first.
+        guard event.clickCount == 1 else { return }
         actions?.toggleCollapsed(model.group)
     }
 

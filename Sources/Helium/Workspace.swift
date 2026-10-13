@@ -7,7 +7,7 @@ final class PaneView: NSView {
     let surface: SurfaceView
     weak var workspace: Workspace?
     private let ring = RingView()
-    private let linkPreview = NSTextField(labelWithString: "")
+    private let linkPreview = ClickThroughLabel(labelWithString: "")
 
     /// The Claude Code or Codex session running here, refreshed by the metadata poll.
     var agent: AgentSession?
@@ -96,6 +96,11 @@ private final class RingView: NSView {
         layer?.cornerRadius = 4
     }
     required init?(coder: NSCoder) { fatalError("not used") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// A label drawn over something clickable (the terminal, the titlebar) that lets clicks through.
+final class ClickThroughLabel: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 

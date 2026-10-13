@@ -369,7 +369,7 @@ private final class ContainerView: NSView {
                 line.widthAnchor.constraint(equalToConstant: 1).isActive = true // narrow, so it draws vertically
                 info.addArrangedSubview(line)
             }
-            let l = NSTextField(labelWithString: text)
+            let l = ClickThroughLabel(labelWithString: text)
             l.font = .systemFont(ofSize: 12, weight: .medium)
             l.textColor = .secondaryLabelColor
             l.lineBreakMode = .byTruncatingTail
