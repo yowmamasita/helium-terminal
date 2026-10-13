@@ -45,7 +45,8 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   selected tab's branch is shown in the titlebar strip above the terminal.
 - **Session restore:** on ⌘Q and every metadata poll, tabs, splits (with ratios), folders and running agents are
   saved to `state.json`; launch rebuilds them and types each agent's resume command via `initial_input`.
-  Claude's session ID comes from `~/.claude/sessions/<pid>.json` (undocumented, read defensively), Codex's from
+  Claude's session ID comes from `~/.claude/sessions/<pid>.json` (undocumented, read defensively); its `status`
+  of `busy` or `shell` (idle, with a background shell or monitor) also shows the blue working edge, not saved. Codex's from
   its open rollout file. Agents are matched by argv[0] (native Claude runs as a versioned file). Programs don't
   survive a quit; that would need a session daemon, which the owner didn't ask for. Tests set
   `HELIUM_STATE_FILE` as well as `HELIUM_SOCKET`.

@@ -46,12 +46,31 @@ final class SessionTests: XCTestCase {
         sysctl(&mib, 4, &procs, &size, nil, 0)
         let pid = try XCTUnwrap(procs.prefix(size / MemoryLayout<kinfo_proc>.stride).map(\.kp_proc.p_pid).first {
             Agents.arguments(of: $0)?.first.map { ($0 as NSString).lastPathComponent } == "claude"
-                && Agents.claudeSessionID(pid: $0) != nil
+                && Agents.claudeSession(pid: $0) != nil
         }, "no interactive claude session running")
-        let id = try XCTUnwrap(Agents.claudeSessionID(pid: pid))
+        let id = try XCTUnwrap(Agents.claudeSession(pid: pid)?.id)
         XCTAssertNotNil(UUID(uuidString: id))
         let argv = try XCTUnwrap(Agents.arguments(of: pid))
         XCTAssertEqual((argv.first as NSString?)?.lastPathComponent, "claude")
+    }
+
+    func testClaudeStatusMeansRunning() throws {
+        func session(_ status: String?) -> (id: String, running: Bool)? {
+            var obj: [String: Any] = ["pid": 42, "sessionId": "abc", "kind": "interactive"]
+            obj["status"] = status
+            return Agents.claudeSession(try! JSONSerialization.data(withJSONObject: obj), pid: 42)
+        }
+        XCTAssertEqual(session("busy")?.running, true)
+        XCTAssertEqual(session("shell")?.running, true) // idle, but a background shell or monitor is going
+        XCTAssertEqual(session("idle")?.running, false)
+        XCTAssertEqual(session(nil)?.running, false)
+        XCTAssertEqual(session("shell")?.id, "abc")
+        // Polled state never reaches state.json.
+        var agent = AgentSession(kind: .claude, sessionID: "id", cwd: nil, flags: [])
+        agent.running = true
+        let json = String(decoding: try JSONEncoder().encode(agent), as: UTF8.self)
+        XCTAssertFalse(json.contains("running"))
+        XCTAssertFalse(try JSONDecoder().decode(AgentSession.self, from: Data(json.utf8)).running)
     }
 
     func testResumeTemplates() {

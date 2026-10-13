@@ -163,7 +163,7 @@ final class Workspace {
     var focusedPane: PaneView? { focused ?? panes.first }
     var unread: Bool { panes.contains { $0.ringing } }
     var waiting: Bool { panes.contains { $0.waiting } }
-    var working: Bool { panes.contains { Self.isWorking(title: $0.surface.title) } }
+    var working: Bool { panes.contains { Self.isWorking(title: $0.surface.title) || $0.agent?.running == true } }
 
     /// Agents animate a glyph at the start of the title during a turn: Claude Code ◐◓◑◒ (✳ when idle),
     /// Codex a braille spinner.

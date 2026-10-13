@@ -11,6 +11,10 @@ struct AgentSession: Codable, Equatable {
     var cwd: String?
     /// The agent's own flags as it was started, minus resume/continue options and an initial prompt.
     var flags: [String]
+    /// Claude is in a turn or still has a background shell or monitor going. Polled, not saved.
+    var running = false
+
+    private enum CodingKeys: String, CodingKey { case kind, sessionID, cwd, flags }
 
     /// Typed into a fresh shell on relaunch, so the agent picks up the same conversation.
     /// Typed into a fresh shell on relaunch, using the template from Settings.
@@ -117,10 +121,8 @@ enum Agents {
         }
         for pid in pids.sorted() {
             guard let kind = agentKind(pid), kind != tree.parent[pid].flatMap(agentKind) else { continue }
-            let id: String? = switch kind {
-            case .claude: claudeSessionID(pid: pid)
-            case .codex: codexSessionID(pids: pids.filter { agentKind($0) == .codex })
-            }
+            let claude = kind == .claude ? claudeSession(pid: pid) : nil
+            let id = kind == .claude ? claude?.id : codexSessionID(pids: pids.filter { agentKind($0) == .codex })
             guard let id, let argv = argvs[pid] else { continue }
             // Only interactive sessions are resumed; `codex exec` and friends also write session logs.
             let nonInteractive: Set<String> = ["exec", "e", "review", "mcp", "mcp-server", "app-server", "login",
@@ -129,21 +131,27 @@ enum Agents {
                nonInteractive.contains(sub) { continue }
             if kind == .claude, argv.contains(where: { $0 == "-p" || $0 == "--print" }) { continue }
             return AgentSession(kind: kind, sessionID: id, cwd: Metadata.cwd(of: pid),
-                                flags: AgentSession.resumableFlags(kind, Array(argv.dropFirst())))
+                                flags: AgentSession.resumableFlags(kind, Array(argv.dropFirst())),
+                                running: claude?.running ?? false)
         }
         return nil
     }
 
     /// Claude Code records each interactive session in ~/.claude/sessions/<pid>.json (undocumented;
     /// read defensively and ignored if the format changes).
-    static func claudeSessionID(pid: pid_t) -> String? {
+    static func claudeSession(pid: pid_t) -> (id: String, running: Bool)? {
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/sessions/\(pid).json")
-        guard let data = try? Data(contentsOf: url),
-              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        return (try? Data(contentsOf: url)).flatMap { claudeSession($0, pid: pid) }
+    }
+
+    /// `running` is a status of "busy" (a turn) or "shell" (idle, with a background shell or monitor),
+    /// the two that Claude's own session list counts as live.
+    static func claudeSession(_ data: Data, pid: pid_t) -> (id: String, running: Bool)? {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               obj["kind"] as? String ?? "interactive" == "interactive",
               (obj["pid"] as? Int).map({ $0 == Int(pid) }) ?? true, // a leftover file from a reused pid
               let id = obj["sessionId"] as? String, !id.isEmpty else { return nil }
-        return id
+        return (id, ["busy", "shell"].contains(obj["status"] as? String))
     }
 
     /// Codex keeps its rollout log (~/.codex/sessions/…/rollout-<time>-<uuid>.jsonl) open while running.
