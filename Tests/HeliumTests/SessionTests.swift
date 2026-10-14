@@ -55,8 +55,8 @@ final class SessionTests: XCTestCase {
     }
 
     func testClaudeStatusMeansRunning() throws {
-        func session(_ status: String?) -> (id: String, running: Bool)? {
-            var obj: [String: Any] = ["pid": 42, "sessionId": "abc", "kind": "interactive"]
+        func session(_ status: String?) -> (id: String, running: Bool, unblockedAt: Date?)? {
+            var obj: [String: Any] = ["pid": 42, "sessionId": "abc", "kind": "interactive", "statusUpdatedAt": 1_791_951_251_478]
             obj["status"] = status
             return Agents.claudeSession(try! JSONSerialization.data(withJSONObject: obj), pid: 42)
         }
@@ -65,6 +65,9 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(session("idle")?.running, false)
         XCTAssertEqual(session(nil)?.running, false)
         XCTAssertEqual(session("shell")?.id, "abc")
+        // Blocked on a question; once answered (anywhere) the status moves on and its time is reported.
+        XCTAssertNil(session("waiting")!.unblockedAt)
+        XCTAssertEqual(session("busy")?.unblockedAt, Date(timeIntervalSince1970: 1_791_951_251.478))
         // Polled state never reaches state.json.
         var agent = AgentSession(kind: .claude, sessionID: "id", cwd: nil, flags: [])
         agent.running = true

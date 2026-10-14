@@ -13,6 +13,9 @@ struct AgentSession: Codable, Equatable {
     var flags: [String]
     /// Claude is in a turn or still has a background shell or monitor going. Polled, not saved.
     var running = false
+    /// When Claude's status last moved to something other than "waiting" (blocked on a question or
+    /// permission). An answer sent from elsewhere (the phone app) shows up here. Polled, not saved.
+    var unblockedAt: Date?
 
     private enum CodingKeys: String, CodingKey { case kind, sessionID, cwd, flags }
 
@@ -132,26 +135,28 @@ enum Agents {
             if kind == .claude, argv.contains(where: { $0 == "-p" || $0 == "--print" }) { continue }
             return AgentSession(kind: kind, sessionID: id, cwd: Metadata.cwd(of: pid),
                                 flags: AgentSession.resumableFlags(kind, Array(argv.dropFirst())),
-                                running: claude?.running ?? false)
+                                running: claude?.running ?? false, unblockedAt: claude?.unblockedAt)
         }
         return nil
     }
 
     /// Claude Code records each interactive session in ~/.claude/sessions/<pid>.json (undocumented;
     /// read defensively and ignored if the format changes).
-    static func claudeSession(pid: pid_t) -> (id: String, running: Bool)? {
+    static func claudeSession(pid: pid_t) -> (id: String, running: Bool, unblockedAt: Date?)? {
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/sessions/\(pid).json")
         return (try? Data(contentsOf: url)).flatMap { claudeSession($0, pid: pid) }
     }
 
     /// `running` is a status of "busy" (a turn) or "shell" (idle, with a background shell or monitor),
     /// the two that Claude's own session list counts as live.
-    static func claudeSession(_ data: Data, pid: pid_t) -> (id: String, running: Bool)? {
+    static func claudeSession(_ data: Data, pid: pid_t) -> (id: String, running: Bool, unblockedAt: Date?)? {
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               obj["kind"] as? String ?? "interactive" == "interactive",
               (obj["pid"] as? Int).map({ $0 == Int(pid) }) ?? true, // a leftover file from a reused pid
               let id = obj["sessionId"] as? String, !id.isEmpty else { return nil }
-        return (id, ["busy", "shell"].contains(obj["status"] as? String))
+        let status = obj["status"] as? String
+        let changed = (obj["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
+        return (id, ["busy", "shell"].contains(status), status == "waiting" ? nil : changed)
     }
 
     /// Codex keeps its rollout log (~/.codex/sessions/…/rollout-<time>-<uuid>.jsonl) open while running.

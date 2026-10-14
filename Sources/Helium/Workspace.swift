@@ -17,10 +17,15 @@ final class PaneView: NSView {
         didSet { updateRing() }
     }
 
-    /// An agent here is blocked on the user; cleared only by typing into the pane.
+    /// An agent here is blocked on the user; cleared by typing into the pane, or when Claude
+    /// reports it was answered elsewhere.
     var waiting = false {
-        didSet { updateRing() }
+        didSet {
+            if waiting && !oldValue { waitingSince = Date() }
+            updateRing()
+        }
     }
+    private(set) var waitingSince = Date.distantPast
 
     func updateRing() {
         ring.isHidden = !ringing && !waiting

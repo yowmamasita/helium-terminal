@@ -288,6 +288,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func refreshAgents(_ tree: ProcessTree = ProcessTree()) {
         for p in workspaces.flatMap(\.panes) {
             p.agent = p.surface.ttyName.flatMap(Metadata.ttyDevice).flatMap { Agents.session(onTTY: $0, tree: tree) }
+            if p.waiting, let t = p.agent?.unblockedAt, t > p.waitingSince { p.waiting = false }
         }
     }
 
