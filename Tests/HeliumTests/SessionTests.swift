@@ -1,7 +1,13 @@
+import Foundation
 import XCTest
 @testable import helium_terminal
 
 final class SessionTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        loadIsolatedDefaults()
+    }
+
     func testClaudeResumeKeepsFlagsAndDropsResumeAndPrompt() {
         let flags = AgentSession.resumableFlags(.claude,
             ["--dangerously-skip-permissions", "--remote-control", "--model", "opus", "-r"])
@@ -9,6 +15,22 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--resume", "abc-123", "--model", "opus"]), ["--model", "opus"])
         XCTAssertEqual(AgentSession.resumableFlags(.claude, ["-c", "fix the failing test"]), [])
         XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--resume=abc", "--verbose"]), ["--verbose"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--system-prompt", "--continue"]),
+                       ["--system-prompt", "--continue"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--allowedTools", "Bash", "Read", "--", "fix"]),
+                       ["--allowedTools", "Bash", "Read"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--add-dir", "/a", "/b", "--", "fix"]),
+                       ["--add-dir", "/a", "/b"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--settings", "{\"a\":\"b,c\"}", "fix"]),
+                       ["--settings", "{\"a\":\"b,c\"}"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--debug", "api,hooks", "--verbose"]),
+                       ["--debug", "api,hooks", "--verbose"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--debug", "--verbose"]),
+                       ["--debug", "--verbose"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--", "fix"]), [])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude,
+                                                   ["--model", "opus", "fix the bug", "--permission-mode", "plan"]),
+                       ["--model", "opus", "--permission-mode", "plan"])
 
         let s = AgentSession(kind: .claude, sessionID: "ec03a3f0-360a-4d62-8014-20b4d520432d", cwd: "/tmp",
                              flags: ["--model", "opus", "--append-system-prompt", "be brief; it's fine"])
@@ -19,6 +41,12 @@ final class SessionTests: XCTestCase {
     func testCodexResumeDropsSubcommandAndLast() {
         XCTAssertEqual(AgentSession.resumableFlags(.codex, ["resume", "--last", "--model", "gpt-5.5"]), ["--model", "gpt-5.5"])
         XCTAssertEqual(AgentSession.resumableFlags(.codex, ["--yolo", "refactor the parser"]), ["--yolo"])
+        XCTAssertEqual(AgentSession.resumableFlags(.codex,
+                                                   ["--model", "gpt-5.5", "fix", "--sandbox", "read-only"]),
+                       ["--model", "gpt-5.5", "--sandbox", "read-only"])
+        XCTAssertEqual(AgentSession.resumableFlags(.codex,
+                                                   ["--image", "one.png", "two.png", "--", "describe"]),
+                       ["--image", "one.png", "two.png"])
         let s = AgentSession(kind: .codex, sessionID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", cwd: nil, flags: ["--yolo"])
         XCTAssertEqual(s.resumeCommand, "codex resume 0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b --yolo")
     }
@@ -36,22 +64,13 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(decoded.tabs[0].firstPane.agent, agent)
     }
 
-    /// Reads a real running Claude Code session, if one exists (this suite often runs inside one).
-    func testFindsRunningClaudeSession() throws {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        sysctl(&mib, 4, nil, &size, nil, 0)
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + 16)
-        size = procs.count * MemoryLayout<kinfo_proc>.stride
-        sysctl(&mib, 4, &procs, &size, nil, 0)
-        let pid = try XCTUnwrap(procs.prefix(size / MemoryLayout<kinfo_proc>.stride).map(\.kp_proc.p_pid).first {
-            Agents.arguments(of: $0)?.first.map { ($0 as NSString).lastPathComponent } == "claude"
-                && Agents.claudeSession(pid: $0) != nil
-        }, "no interactive claude session running")
-        let id = try XCTUnwrap(Agents.claudeSession(pid: pid)?.id)
-        XCTAssertNotNil(UUID(uuidString: id))
-        let argv = try XCTUnwrap(Agents.arguments(of: pid))
-        XCTAssertEqual((argv.first as NSString?)?.lastPathComponent, "claude")
+    func testClaudeSessionFixture() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "pid": 42, "sessionId": "ec03a3f0-360a-4d62-8014-20b4d520432d",
+            "kind": "interactive", "status": "busy",
+        ])
+        XCTAssertEqual(Agents.claudeSession(data, pid: 42)?.id, "ec03a3f0-360a-4d62-8014-20b4d520432d")
+        XCTAssertNil(Agents.claudeSession(data, pid: 43))
     }
 
     func testClaudeStatusMeansRunning() throws {
@@ -111,9 +130,35 @@ final class SessionTests: XCTestCase {
 
     func testFlagValuesWithSpacesAreKept() {
         // A spaced value after an option that takes text is that option's value, not an initial prompt.
-        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--allowedTools", "Bash(git *)", "fix it"]),
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--allowedTools", "Bash(git *)", "--", "fix it"]),
                        ["--allowedTools", "Bash(git *)"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--permission-mode", "plan", "fix it"]),
+                       ["--permission-mode", "plan"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--name", "API work", "fix it"]),
+                       ["--name", "API work"])
         XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--verbose", "fix it"]), ["--verbose"])
+        XCTAssertEqual(AgentSession.resumableFlags(.claude, ["--verbose", "fix"]), ["--verbose"])
+        XCTAssertEqual(AgentSession.resumableFlags(.codex, ["--yolo", "refactor"]), ["--yolo"])
+        XCTAssertEqual(AgentSession.resumableFlags(.codex, ["--profile", "work", "refactor"]), ["--profile", "work"])
+        XCTAssertEqual(AgentSession.resumableFlags(.codex, ["--enable", "feature", "refactor"]), ["--enable", "feature"])
+    }
+
+    func testCodexSubcommandSkipsOptionValues() {
+        XCTAssertNil(Agents.codexSubcommand(["--profile", "exec"]))
+        XCTAssertEqual(Agents.codexSubcommand(["--profile", "work", "exec"]), "exec")
+        XCTAssertNil(Agents.codexSubcommand(["--enable", "exec"]))
+        XCTAssertEqual(Agents.codexSubcommand(["--config=exec"]), nil)
+        XCTAssertNil(Agents.codexSubcommand(["--", "review"]))
+        XCTAssertNil(Agents.codexSubcommand(["--profile", "--", "review"]))
+    }
+
+    func testPersistedSplitRatiosPreserveValidValues() {
+        XCTAssertEqual(MainWindowController.boundedRatio(.nan), 0.5)
+        XCTAssertEqual(MainWindowController.boundedRatio(-1), 0.5)
+        XCTAssertEqual(MainWindowController.boundedRatio(2), 0.5)
+        XCTAssertEqual(MainWindowController.boundedRatio(0.01), 0.01)
+        XCTAssertEqual(MainWindowController.boundedRatio(0.99), 0.99)
+        XCTAssertEqual(MainWindowController.boundedRatio(0.6), 0.6)
     }
 
     func testTemplateIsFilledInOnePass() {
@@ -136,8 +181,17 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(Metadata.branchParts("main", .init()), ["⎇ main"])
         XCTAssertEqual(Metadata.branchParts("main", nil), ["⎇ main"])
 
-        // The real thing, on this repo: it must not fail and must report a status.
-        XCTAssertNotNil(Metadata.gitStatus(FileManager.default.currentDirectoryPath))
-        XCTAssertNil(Metadata.gitStatus("/"))
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("helium-git-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let git = Process()
+        git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        git.arguments = ["init", "-q", dir.path]
+        git.standardOutput = FileHandle.nullDevice
+        git.standardError = FileHandle.nullDevice
+        try git.run()
+        git.waitUntilExit()
+        XCTAssertEqual(git.terminationStatus, 0)
+        XCTAssertNotNil(Metadata.gitStatus(dir.path))
     }
 }

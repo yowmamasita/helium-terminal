@@ -10,7 +10,7 @@ if let first = args.first, first.hasPrefix("+") {
     ghostty_cli_try_action() // exits when it ran an action
     exit(1)
 }
-if let first = args.first, !first.hasPrefix("-") {
+if let first = args.first, (!first.hasPrefix("-") || ["--help", "-h"].contains(first)) {
     exit(CLI.run(args))
 }
 // `helium` typed in a shell opens the app instead of running it in the foreground.

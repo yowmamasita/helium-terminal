@@ -1,5 +1,10 @@
 import AppKit
 
+/// Shared so tests can use an isolated suite without touching the owner's defaults.
+enum HeliumDefaults {
+    static var standard = UserDefaults.standard
+}
+
 /// Gmail-style labels: named colors shared by all tabs, stored in user defaults.
 struct TabLabel: Equatable {
     let name: String
@@ -22,12 +27,12 @@ enum LabelStore {
 
     static var all: [TabLabel] {
         get {
-            (UserDefaults.standard.array(forKey: key) as? [[String: String]] ?? []).compactMap { d in
+            (HeliumDefaults.standard.array(forKey: key) as? [[String: String]] ?? []).compactMap { d in
                 guard let n = d["name"], let c = d["color"] else { return nil }
                 return TabLabel(name: n, color: c)
             }
         }
-        set { UserDefaults.standard.set(newValue.map { ["name": $0.name, "color": $0.color] }, forKey: key) }
+        set { HeliumDefaults.standard.set(newValue.map { ["name": $0.name, "color": $0.color] }, forKey: key) }
     }
 
     static func label(named name: String) -> TabLabel? { all.first { $0.name == name } }

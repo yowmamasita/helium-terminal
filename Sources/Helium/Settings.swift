@@ -401,7 +401,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             toggle.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
             let field = NSTextField()
             field.placeholderString = AgentSession.defaultTemplate(for: kind)
-            field.stringValue = UserDefaults.standard.string(forKey: AgentSession.templateKey(for: kind)) ?? ""
+            field.stringValue = HeliumDefaults.standard.string(forKey: AgentSession.templateKey(for: kind)) ?? ""
             field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             field.widthAnchor.constraint(equalToConstant: 300).isActive = true
             field.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
@@ -439,7 +439,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
 
     @objc private func agentResumeToggled(_ sender: NSButton) {
         guard let kind = AgentSession.Kind(rawValue: sender.identifier?.rawValue ?? "") else { return }
-        UserDefaults.standard.set(sender.state == .on, forKey: AgentSession.enabledKey(for: kind))
+        HeliumDefaults.standard.set(sender.state == .on, forKey: AgentSession.enabledKey(for: kind))
         setAgentControlsEnabled(SessionState.restoreEnabled)
     }
 
@@ -447,9 +447,9 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         guard let kind = AgentSession.Kind(rawValue: sender.identifier?.rawValue ?? "") else { return }
         let t = sender.stringValue.trimmingCharacters(in: .whitespaces)
         if t.isEmpty {
-            UserDefaults.standard.removeObject(forKey: AgentSession.templateKey(for: kind))
+            HeliumDefaults.standard.removeObject(forKey: AgentSession.templateKey(for: kind))
         } else {
-            UserDefaults.standard.set(t, forKey: AgentSession.templateKey(for: kind))
+            HeliumDefaults.standard.set(t, forKey: AgentSession.templateKey(for: kind))
         }
     }
 
@@ -469,12 +469,12 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
     }
 
     private func currentSidebarWidth() -> Double {
-        let w = UserDefaults.standard.double(forKey: "SidebarWidth")
+        let w = HeliumDefaults.standard.double(forKey: "SidebarWidth")
         return w > 0 ? w : 240
     }
 
     @objc private func sidebarWidthChanged(_ sender: NSSlider) {
-        UserDefaults.standard.set(sender.doubleValue, forKey: "SidebarWidth")
+        HeliumDefaults.standard.set(sender.doubleValue, forKey: "SidebarWidth")
         NotificationCenter.default.post(name: .heliumSidebarWidthChanged, object: nil)
     }
 

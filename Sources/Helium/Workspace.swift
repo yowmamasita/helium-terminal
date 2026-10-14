@@ -125,18 +125,18 @@ enum Attention: String, CaseIterable {
 
     var color: NSColor {
         get {
-            UserDefaults.standard.data(forKey: key)
+            HeliumDefaults.standard.data(forKey: key)
                 .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: $0) } ?? defaultColor
         }
         nonmutating set {
-            UserDefaults.standard.set(try? NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true),
+            HeliumDefaults.standard.set(try? NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true),
                                       forKey: key)
             NotificationCenter.default.post(name: .heliumAttentionColorsChanged, object: nil)
         }
     }
 
     static func reset() {
-        allCases.forEach { UserDefaults.standard.removeObject(forKey: $0.key) }
+        allCases.forEach { HeliumDefaults.standard.removeObject(forKey: $0.key) }
         NotificationCenter.default.post(name: .heliumAttentionColorsChanged, object: nil)
     }
 }

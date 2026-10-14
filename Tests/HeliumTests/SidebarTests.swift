@@ -3,6 +3,11 @@ import XCTest
 @testable import helium_terminal
 
 final class SidebarTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        loadIsolatedDefaults()
+    }
+
     /// Renders the sidebar offscreen; set HELIUM_SNAPSHOT=path to write a PNG for inspection.
     func testRowsAreAllTwoLines() throws {
         let plain = Workspace()

@@ -24,8 +24,8 @@ final class Updater {
     }
 
     var automatic: Bool {
-        get { UserDefaults.standard.object(forKey: "AutoUpdate") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "AutoUpdate") }
+        get { HeliumDefaults.standard.object(forKey: "AutoUpdate") as? Bool ?? true }
+        set { HeliumDefaults.standard.set(newValue, forKey: "AutoUpdate") }
     }
 
     private let appURL = Bundle.main.bundleURL
@@ -67,11 +67,13 @@ final class Updater {
         }
         state = .checking
         var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest")!)
+        req.timeoutInterval = 15
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.setValue("helium-terminal/\(installedVersion)", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, _, error in
-            let result = Self.parseRelease(data)
-            DispatchQueue.main.async { self.handle(result, error: error) }
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            let responseError = Self.httpError(response: response, error: error)
+            let result = responseError == nil ? Self.parseRelease(data) : nil
+            DispatchQueue.main.async { self.handle(result, error: responseError) }
         }.resume()
     }
 
@@ -86,10 +88,18 @@ final class Updater {
             return
         }
         state = .downloading(release.version)
-        URLSession.shared.downloadTask(with: release.zip) { file, _, error in
+        var req = URLRequest(url: release.zip)
+        req.timeoutInterval = 120
+        URLSession.shared.downloadTask(with: req) { file, response, error in
             // The downloaded file is deleted when this handler returns, so install here (off the main thread).
-            let outcome: Result<Void, Error> = file.map { f in Result { try self.install(zip: f, version: release.version) } }
-                ?? .failure(error ?? URLError(.unknown))
+            let outcome: Result<Void, Error>
+            if let responseError = Self.httpError(response: response, error: error) {
+                outcome = .failure(responseError)
+            } else if let file {
+                outcome = Result { try self.install(zip: file, version: release.version) }
+            } else {
+                outcome = .failure(URLError(.unknown))
+            }
             DispatchQueue.main.async {
                 switch outcome {
                 case .success:
@@ -125,7 +135,12 @@ final class Updater {
         guard let team = Self.teamID(of: appURL), Self.verify(newApp, team: team) else {
             throw UpdateError("The download isn't signed by the Helium developer; not installing it.")
         }
-        let newVersion = Bundle(url: newApp)?.infoDictionary?["CFBundleShortVersionString"] as? String
+        let bundle = Bundle(url: newApp)
+        let identifier = Bundle.main.bundleIdentifier ?? "io.github.yowmamasita.helium-terminal"
+        guard bundle?.bundleIdentifier == identifier else {
+            throw UpdateError("The download isn't the Helium Terminal app.")
+        }
+        let newVersion = bundle?.infoDictionary?["CFBundleShortVersionString"] as? String
         guard newVersion == version else { throw UpdateError("The download is version \(newVersion ?? "?"), expected \(version).") }
 
         _ = try FileManager.default.replaceItemAt(appURL, withItemAt: newApp)
@@ -144,13 +159,25 @@ final class Updater {
 
     // MARK: Helpers
 
+    /// Both release metadata and the archive must have a successful HTTP status before any
+    /// payload is parsed or installed. A URLSession error always wins over a response.
+    static func httpError(response: URLResponse?, error: Error?) -> Error? {
+        if let error { return error }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return URLError(.badServerResponse)
+        }
+        return nil
+    }
+
     static func parseRelease(_ data: Data?) -> (version: String, zip: URL)? {
         guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = obj["tag_name"] as? String, let assets = obj["assets"] as? [[String: Any]] else { return nil }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        guard !version.isEmpty else { return nil }
         let name = "helium-terminal-\(version)-macos-arm64.zip"
         guard let asset = assets.first(where: { $0["name"] as? String == name }),
-              let s = asset["browser_download_url"] as? String, let url = URL(string: s) else { return nil }
+              let s = asset["browser_download_url"] as? String, let url = URL(string: s),
+              url.scheme?.lowercased() == "https", url.host != nil else { return nil }
         return (version, url)
     }
 

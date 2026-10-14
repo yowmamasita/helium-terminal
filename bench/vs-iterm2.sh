@@ -4,7 +4,7 @@
 cd "$(dirname "$0")"
 # Never let a benchmarked Helium restore or overwrite the owner's session or take their socket.
 export HELIUM_STATE_FILE="${TMPDIR:-/tmp}/helium-bench-state.json" HELIUM_SOCKET="${TMPDIR:-/tmp}/helium-bench.sock"
-rm -f "$HELIUM_STATE_FILE"
+rm -f "$HELIUM_STATE_FILE" "$HELIUM_SOCKET" "$HELIUM_SOCKET.lock"
 /usr/bin/pgrep -f "iTerm.app/Contents/MacOS/iTerm2" >/dev/null && { echo "iTerm2 is running; quit it first" >&2; exit 1; }
 
 LAUNCHED=""
@@ -16,7 +16,7 @@ cleanup() {
   done
   sleep 1
   for p in $LAUNCHED; do /bin/ps -p $p >/dev/null 2>&1 && kill -9 $p; done
-  rm -f "${TMPDIR:-/tmp}"/helium-bench*
+  rm -f "$HELIUM_STATE_FILE" "$HELIUM_SOCKET" "$HELIUM_SOCKET.lock"
 }
 trap cleanup EXIT
 

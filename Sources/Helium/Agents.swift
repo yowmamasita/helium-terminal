@@ -59,13 +59,13 @@ struct AgentSession: Codable, Equatable {
 
     /// The user's template from Settings, or the default when unset or blank.
     static func template(for kind: Kind) -> String {
-        let t = UserDefaults.standard.string(forKey: templateKey(for: kind))?.trimmingCharacters(in: .whitespaces) ?? ""
+        let t = HeliumDefaults.standard.string(forKey: templateKey(for: kind))?.trimmingCharacters(in: .whitespaces) ?? ""
         return t.isEmpty ? defaultTemplate(for: kind) : t
     }
 
     /// Whether sessions of this agent are resumed on relaunch (Settings; on by default).
     static func resumeEnabled(_ kind: Kind) -> Bool {
-        UserDefaults.standard.object(forKey: enabledKey(for: kind)) as? Bool ?? true
+        HeliumDefaults.standard.object(forKey: enabledKey(for: kind)) as? Bool ?? true
     }
 
     static func shellQuote(_ s: String) -> String {
@@ -75,36 +75,105 @@ struct AgentSession: Codable, Equatable {
         return "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// shortcut: these tables mirror the supported current help; update them when agent options change.
+    /// Keep these sets in sync with the current Claude help. Variadic options
+    /// consume values until the next known option, while optional options consume
+    /// one value when present.
+    fileprivate static let claudeOptionsWithRequiredValue: Set<String> = [
+        "--agent", "--agents", "--append-system-prompt", "--autocompact", "--debug-file",
+        "--effort", "--environment", "--fallback-model", "--input-format", "--json-schema",
+        "--max-budget-usd", "--model", "-n", "--name", "--output-format", "--permission-mode",
+        "--permission-prompts", "--permission-prompt-tool", "--plugin-dir", "--plugin-url",
+        "--remote-control-session-name-prefix", "--setting-sources", "--settings", "--system-prompt",
+        "--system-prompt-snapshot",
+    ]
+
+    fileprivate static let claudeOptionsWithVariadicValue: Set<String> = [
+        "--add-dir", "--allowedTools", "--allowed-tools", "--betas", "--disallowedTools",
+        "--disallowed-tools", "--file", "--mcp-config", "--tools",
+    ]
+
+    fileprivate static let claudeOptionsWithOptionalValue: Set<String> = [
+        "--cloud", "-d", "--debug", "--prompt-suggestions", "--remote-control", "--teleport", "-w", "--worktree",
+    ]
+
+    fileprivate static let claudeKnownOptions: Set<String> =
+        claudeOptionsWithRequiredValue
+        .union(claudeOptionsWithVariadicValue)
+        .union(claudeOptionsWithOptionalValue)
+        .union(["--allow-dangerously-skip-permissions", "--ax-screen-reader",
+                "--background", "--bg", "--bare", "--brief", "--chrome", "-c", "--continue", "--dangerously-skip-permissions",
+                "--desktop", "--disable-slash-commands", "--exclude-dynamic-system-prompt-sections", "--fork-session",
+                "--forward-subagent-text", "-h", "--help", "--ide", "--include-hook-events",
+                "--include-partial-messages", "--no-chrome", "--no-session-persistence", "-p", "--print",
+                "--restricted", "--safe-mode", "--session-id", "--strict-mcp-config", "--tmux", "--verbose",
+                "--version", "--replay-user-messages", "--resume", "-r", "--from-pr", "-v"])
+
+    fileprivate static let codexOptionsWithRequiredValue: Set<String> = [
+        "-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env",
+        "-m", "--model", "--local-provider", "-p", "--profile", "-s", "--sandbox",
+        "-a", "--ask-for-approval", "-C", "--cd", "--add-dir", "--log-dir", "--color",
+    ]
+
+    fileprivate static let codexOptionsWithVariadicValue: Set<String> = ["-i", "--image"]
+
+    static let codexOptionsWithValues: Set<String> =
+        codexOptionsWithRequiredValue.union(codexOptionsWithVariadicValue)
+
+    private static let codexKnownOptions: Set<String> = codexOptionsWithValues.union([
+        "--oss", "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust",
+        "--last", "--no-alt-screen", "--no-daemon", "--search", "--strict-config", "--worktree", "-h", "--help",
+        "-V", "--version",
+    ])
+
+    fileprivate static func optionName(_ argument: String) -> String {
+        String(argument.split(separator: "=", maxSplits: 1).first ?? "")
+    }
+
+    fileprivate static func isKnownOption(_ argument: String, _ kind: Kind) -> Bool {
+        guard argument.hasPrefix("-") else { return false }
+        return (kind == .claude ? claudeKnownOptions : codexKnownOptions).contains(optionName(argument))
+    }
+
     /// Drops what must not be replayed: resume/continue options (a new ID is appended) and an
-    /// initial prompt (resuming must not send it again). Prompts are recognised as arguments
-    /// with spaces, since flag values almost never contain them.
+    /// initial prompt (resuming must not send it again).
     static func resumableFlags(_ kind: Kind, _ args: [String]) -> [String] {
         let dropWithValue: Set<String> = kind == .claude
             ? ["-r", "--resume", "--session-id", "--from-pr"] : ["resume", "fork"]
+        let requiredDropValue = kind == .claude ? ["--session-id"] : []
         let dropAlone: Set<String> = kind == .claude
             ? ["-c", "--continue", "--fork-session"] : ["--last"]
-        // Options whose values often contain spaces; such a value isn't an initial prompt.
-        let takesText: Set<String> = kind == .claude
-            ? ["--allowedTools", "--allowed-tools", "--disallowedTools", "--disallowed-tools", "--system-prompt",
-               "--append-system-prompt", "--add-dir", "--mcp-config", "--settings", "--agents", "--model"]
-            : ["-c", "--config", "-m", "--model"]
+        let requiredValues = kind == .claude ? Self.claudeOptionsWithRequiredValue : Self.codexOptionsWithRequiredValue
+        let variadicValues = kind == .claude ? Self.claudeOptionsWithVariadicValue : Self.codexOptionsWithVariadicValue
         var out: [String] = []
         var i = 0
         while i < args.count {
             let a = args[i]
-            let name = a.split(separator: "=", maxSplits: 1).first.map(String.init) ?? a
+            if a == "--" { break } // The remaining tokens are the initial prompt.
+            let name = Self.optionName(a)
             if dropAlone.contains(name) {
                 i += 1
             } else if dropWithValue.contains(name) {
-                // The value is optional for `claude -r` (it opens a picker); only skip a value-shaped next arg.
-                let next = i + 1 < args.count ? args[i + 1] : nil
-                let takesNext = !a.contains("=") && next.map { !$0.hasPrefix("-") && !$0.contains(" ") } == true
-                i += takesNext ? 2 : 1
-            } else if !a.hasPrefix("-") && a.contains(where: \.isWhitespace), !(i > 0 && takesText.contains(args[i - 1])) {
-                i += 1 // initial prompt
+                i += 1
+                if !a.contains("="), i < args.count,
+                   requiredDropValue.contains(name) || !Self.isKnownOption(args[i], kind) { i += 1 }
+            } else if !a.hasPrefix("-") {
+                i += 1 // discard a positional prompt, but keep scanning later option groups
             } else {
                 out.append(a)
                 i += 1
+                guard !a.contains("=") else { continue }
+                if requiredValues.contains(name) {
+                    if i < args.count { out.append(args[i]); i += 1 }
+                } else if variadicValues.contains(name) {
+                    while i < args.count, args[i] != "--", !Self.isKnownOption(args[i], kind) {
+                        out.append(args[i]); i += 1
+                    }
+                } else if kind == .claude, claudeOptionsWithOptionalValue.contains(name) {
+                    if i < args.count, args[i] != "--", !Self.isKnownOption(args[i], kind) {
+                        out.append(args[i]); i += 1
+                    }
+                }
             }
         }
         return out
@@ -125,12 +194,12 @@ enum Agents {
         for pid in pids.sorted() {
             guard let kind = agentKind(pid), kind != tree.parent[pid].flatMap(agentKind) else { continue }
             let claude = kind == .claude ? claudeSession(pid: pid) : nil
-            let id = kind == .claude ? claude?.id : codexSessionID(pids: pids.filter { agentKind($0) == .codex })
+            let id = kind == .claude ? claude?.id : codexSessionID(pid: pid)
             guard let id, let argv = argvs[pid] else { continue }
             // Only interactive sessions are resumed; `codex exec` and friends also write session logs.
             let nonInteractive: Set<String> = ["exec", "e", "review", "mcp", "mcp-server", "app-server", "login",
                                                "logout", "apply", "a", "sandbox", "debug", "cloud", "completion"]
-            if kind == .codex, let sub = argv.dropFirst().first(where: { !$0.hasPrefix("-") }),
+            if kind == .codex, let sub = codexSubcommand(Array(argv.dropFirst())),
                nonInteractive.contains(sub) { continue }
             if kind == .claude, argv.contains(where: { $0 == "-p" || $0 == "--print" }) { continue }
             return AgentSession(kind: kind, sessionID: id, cwd: Metadata.cwd(of: pid),
@@ -160,13 +229,32 @@ enum Agents {
     }
 
     /// Codex keeps its rollout log (~/.codex/sessions/…/rollout-<time>-<uuid>.jsonl) open while running.
-    static func codexSessionID(pids: [pid_t]) -> String? {
-        for pid in pids {
-            for path in openFiles(of: pid) where path.contains("/.codex/sessions/") && path.hasSuffix(".jsonl") {
-                let name = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
-                guard name.hasPrefix("rollout-"), name.count > 36 else { continue }
-                let id = String(name.suffix(36))
-                if UUID(uuidString: id) != nil { return id }
+    static func codexSessionID(pid: pid_t) -> String? {
+        for path in openFiles(of: pid) where path.contains("/.codex/sessions/") && path.hasSuffix(".jsonl") {
+            let name = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
+            guard name.hasPrefix("rollout-"), name.count > 36 else { continue }
+            let id = String(name.suffix(36))
+            if UUID(uuidString: id) != nil { return id }
+        }
+        return nil
+    }
+
+    /// Finds a Codex subcommand without mistaking a value passed to a global option for one.
+    static func codexSubcommand(_ args: [String]) -> String? {
+        var i = 0
+        while i < args.count {
+            let arg = args[i]
+            if arg == "--" { return nil } // The remaining tokens are the interactive prompt.
+            guard arg.hasPrefix("-") else { return arg }
+            let name = AgentSession.optionName(arg)
+            if !arg.contains("="), AgentSession.codexOptionsWithVariadicValue.contains(name) {
+                i += 1
+                while i < args.count, args[i] != "--", !AgentSession.isKnownOption(args[i], .codex) { i += 1 }
+            } else if !arg.contains("="), AgentSession.codexOptionsWithRequiredValue.contains(name) {
+                if i + 1 < args.count, args[i + 1] == "--" { return nil }
+                i += 2
+            } else {
+                i += 1
             }
         }
         return nil

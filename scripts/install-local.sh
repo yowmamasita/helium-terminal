@@ -8,8 +8,17 @@ scripts/build-app.sh
 DEST=/Applications
 [ -w "$DEST" ] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }
 APP="$DEST/Helium Terminal.app"
-rm -rf "$APP"
-ditto "build/Helium Terminal.app" "$APP"
+STAGE=$(mktemp -d "$DEST/.helium-install.XXXXXX")
+trap 'rm -rf "$STAGE"' EXIT
+ditto "build/Helium Terminal.app" "$STAGE/Helium Terminal.app"
+BACKUP="$DEST/.Helium Terminal.app.backup.$$"
+if [ -e "$APP" ]; then mv "$APP" "$BACKUP"; fi
+if mv "$STAGE/Helium Terminal.app" "$APP"; then
+  rm -rf "$BACKUP"
+else
+  [ -e "$BACKUP" ] && mv "$BACKUP" "$APP"
+  exit 1
+fi
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
 mdimport "$APP"
 echo "installed $APP"

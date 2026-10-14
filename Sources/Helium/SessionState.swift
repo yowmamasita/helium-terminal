@@ -41,8 +41,8 @@ struct SessionState: Codable, Equatable {
     }
 
     static var restoreEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: "RestoreSession") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "RestoreSession") }
+        get { HeliumDefaults.standard.object(forKey: "RestoreSession") as? Bool ?? true }
+        set { HeliumDefaults.standard.set(newValue, forKey: "RestoreSession") }
     }
 
     static func load() -> SessionState? {
@@ -62,7 +62,7 @@ extension MainWindowController {
             }
             let total = s.isVertical ? s.bounds.width : s.bounds.height
             let first = s.isVertical ? s.arrangedSubviews[0].frame.width : s.arrangedSubviews[0].frame.height
-            return .split(vertical: s.isVertical, ratio: total > 0 ? Double(first / total) : 0.5, first: a, second: b)
+            return .split(vertical: s.isVertical, ratio: Self.boundedRatio(total > 0 ? Double(first / total) : 0.5), first: a, second: b)
         }
         let saved = (tabs ?? workspaces).compactMap { ws in node(ws.root).map { (ws, $0) } }
         let selected = saved.firstIndex { $0.0 === self.selected } ?? 0 // an index into the saved tabs
@@ -109,7 +109,7 @@ extension MainWindowController {
             let new = PaneView(surface: SurfaceView(app: app, workingDirectory: leaf.agent?.cwd ?? leaf.cwd,
                                                     initialInput: Self.resumeInput(leaf.agent)))
             ws.split(pane, with: new, vertical ? GHOSTTY_SPLIT_DIRECTION_RIGHT : GHOSTTY_SPLIT_DIRECTION_DOWN)
-            if let split = new.superview as? NSSplitView { ratios.append((split, ratio)) }
+            if let split = new.superview as? NSSplitView { ratios.append((split, Self.boundedRatio(ratio))) }
             build(first, in: pane, ws)
             build(second, in: new, ws)
         }
@@ -140,6 +140,11 @@ extension MainWindowController {
             }
         }
         return !workspaces.isEmpty
+    }
+
+    /// Persisted state can outlive a layout or be edited by hand; keep both children visible.
+    static func boundedRatio(_ ratio: Double) -> Double {
+        ratio.isFinite && (0...1).contains(ratio) ? ratio : 0.5
     }
 }
 

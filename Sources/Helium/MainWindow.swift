@@ -176,7 +176,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     /// Chrome's "Close Tab and Delete Group?" when `ws` is the last tab of its group. True means go ahead.
     private func confirmDeletingGroup(closing ws: Workspace) -> Bool {
         guard let g = ws.group, !workspaces.contains(where: { $0 !== ws && $0.group === g }),
-              UserDefaults.standard.object(forKey: "AskBeforeDeletingGroup") as? Bool ?? true else { return true }
+              HeliumDefaults.standard.object(forKey: "AskBeforeDeletingGroup") as? Bool ?? true else { return true }
         let alert = NSAlert()
         alert.messageText = "Close Tab and Delete Group?"
         alert.informativeText = g.name.isEmpty ? "This is the last tab in the group." : "This is the last tab in “\(g.name)”."
@@ -186,7 +186,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         alert.addButton(withTitle: "Cancel")
         let ok = alert.runModal() == .alertFirstButtonReturn
         if ok, alert.suppressionButton?.state == .on {
-            UserDefaults.standard.set(false, forKey: "AskBeforeDeletingGroup")
+            HeliumDefaults.standard.set(false, forKey: "AskBeforeDeletingGroup")
         }
         return ok
     }
@@ -382,7 +382,7 @@ private final class ContainerView: NSView {
 
     /// Sidebar width, dragged by the user and remembered across launches.
     private var sidebarWidth: CGFloat = {
-        let saved = UserDefaults.standard.double(forKey: "SidebarWidth")
+        let saved = HeliumDefaults.standard.double(forKey: "SidebarWidth")
         return saved > 0 ? saved : 240
     }()
 
@@ -400,11 +400,11 @@ private final class ContainerView: NSView {
         NotificationCenter.default.addObserver(forName: .heliumSidebarWidthChanged, object: nil, queue: .main) {
             [weak self] _ in
             guard let self else { return }
-            self.resizeSidebar(to: UserDefaults.standard.double(forKey: "SidebarWidth"))
+            self.resizeSidebar(to: HeliumDefaults.standard.double(forKey: "SidebarWidth"))
         }
         handle.onDragEnd = { [weak self] in
             guard let self else { return }
-            UserDefaults.standard.set(Double(self.sidebarWidth), forKey: "SidebarWidth")
+            HeliumDefaults.standard.set(Double(self.sidebarWidth), forKey: "SidebarWidth")
         }
     }
 
