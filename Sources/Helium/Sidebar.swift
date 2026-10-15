@@ -236,7 +236,9 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             row.frame.origin.y = min(max(p.y - grab, 0), max(stack.frame.maxY - row.frame.height, 0))
             // The gap goes after every other item whose middle is above the lifted row's middle.
             let others = stack.arrangedSubviews.filter { $0 !== gap }
-            let slot = others.filter { doc.convert($0.frame, from: stack).midY < row.frame.midY }.count
+            // Use the unclamped position so the pointer can carry a tab past the last row.
+            let middle = p.y - grab + row.frame.height / 2
+            let slot = others.filter { doc.convert($0.frame, from: stack).midY < middle }.count
             guard stack.arrangedSubviews.firstIndex(of: gap) != slot else { return }
             stack.removeArrangedSubview(gap)
             stack.insertArrangedSubview(gap, at: slot)

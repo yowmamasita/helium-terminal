@@ -93,6 +93,69 @@ final class SidebarTests: XCTestCase {
         }
     }
 
+    /// Exercise row lifting and drop placement without posting events to the owner's desktop.
+    func testDragReordersRowsAfterSelectionRebuild() throws {
+        final class TrackingWindow: NSWindow {
+            var events: [NSEvent] = []
+            override func trackEvents(matching mask: NSEvent.EventTypeMask, timeout: TimeInterval,
+                                      mode: RunLoop.Mode,
+                                      handler: (NSEvent?, UnsafeMutablePointer<ObjCBool>) -> Void) {
+                var stop: ObjCBool = false
+                for event in events {
+                    handler(event, &stop)
+                    if stop.boolValue { break }
+                }
+            }
+        }
+        final class Actions: TabGroupActions {
+            var moved: Workspace?
+            var before: Workspace?
+            var groups: [TabGroup] { [] }
+            func addToNewGroup(_ ws: Workspace) {}
+            func add(_ ws: Workspace, to group: TabGroup) {}
+            func removeFromGroup(_ ws: Workspace) {}
+            func toggleCollapsed(_ group: TabGroup) {}
+            func ungroup(_ group: TabGroup) {}
+            func closeGroup(_ group: TabGroup) {}
+            func newTab(in group: TabGroup) {}
+            func groupsChanged() {}
+            func move(_ ws: Workspace, before: Workspace?, group: TabGroup?) {
+                moved = ws
+                self.before = before
+            }
+        }
+        _ = NSApplication.shared
+        let window = TrackingWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 500),
+                                    styleMask: [.borderless], backing: .buffered, defer: false)
+        let sidebar = SidebarView(frame: window.contentView!.bounds)
+        window.contentView = sidebar
+        let tabs = [Workspace(), Workspace(), Workspace()]
+        let actions = Actions()
+        sidebar.actions = actions
+        sidebar.onSelect = { [weak sidebar] in sidebar?.update(tabs, selected: $0) }
+        sidebar.update(tabs, selected: tabs[1])
+        window.layoutIfNeeded()
+        func findRows(_ view: NSView) -> [NSView] {
+            if view.accessibilityRole() == .button { return [view] }
+            return view.subviews.flatMap(findRows)
+        }
+        let rows = findRows(sidebar)
+        XCTAssertEqual(rows.count, 3)
+        let first = try XCTUnwrap(rows.first)
+        let last = try XCTUnwrap(rows.last)
+        let start = first.convert(NSPoint(x: 100, y: first.bounds.midY), to: nil)
+        let end = NSPoint(x: start.x, y: last.convert(.zero, to: nil).y - 40)
+        func event(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                             windowNumber: window.windowNumber, context: nil,
+                                             eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        window.events = try [event(.leftMouseDragged, end), event(.leftMouseUp, end)]
+        first.mouseDown(with: try event(.leftMouseDown, start))
+        XCTAssertTrue(actions.moved === tabs[0])
+        XCTAssertNil(actions.before)
+    }
+
     /// Dropping a dragged tab joins a group only inside it, or right under its expanded header.
     func testDropTarget() {
         let api = TabGroup(), infra = TabGroup(collapsed: true)
