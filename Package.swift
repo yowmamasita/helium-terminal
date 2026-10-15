@@ -11,6 +11,7 @@ let package = Package(
             name: "helium-terminal",
             dependencies: ["GhosttyKit"],
             path: "Sources/Helium",
+            resources: [.copy("default-config")],
             linkerSettings: [
                 .linkedLibrary("c++"),
                 .linkedFramework("Carbon"),

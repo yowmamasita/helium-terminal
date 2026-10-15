@@ -56,9 +56,16 @@ final class Ghostty {
             .appendingPathComponent("Library/Application Support/helium-terminal/config").path
     }
 
+    static var defaultConfigPath: String {
+        let bundled = Bundle.main.resourceURL?.appendingPathComponent("helium-terminal_helium-terminal.bundle")
+        let resources = bundled.flatMap { Bundle(url: $0) } ?? Bundle.module
+        return resources.url(forResource: "default-config", withExtension: nil)!.path
+    }
+
     private static func loadConfig() -> ghostty_config_t? {
         // Reads the user's Ghostty config, so themes, fonts and keybinds carry over.
         let cfg = ghostty_config_new()
+        ghostty_config_load_file(cfg, defaultConfigPath)
         ghostty_config_load_default_files(cfg)
         ghostty_config_load_recursive_files(cfg)
         // Last, so Settings win over the user's Ghostty config and the files it includes.
