@@ -213,3 +213,21 @@ final class SidebarTests: XCTestCase {
         XCTAssertTrue(hit.acceptsFirstMouse(for: nil), "a click must select even when the window isn't key")
     }
 }
+
+extension SidebarTests {
+    /// Agent spinners rebuild the rows several times a second; a click right after a rebuild must still land on a row.
+    func testRowsTakeClicksRightAfterRebuild() throws {
+        let ws = Workspace(); ws.customTitle = "one"
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 300))
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = sidebar
+        sidebar.update([ws], selected: nil)
+        sidebar.layoutSubtreeIfNeeded()
+        let p = NSPoint(x: 100, y: sidebar.bounds.height - 60) // inside the first row
+        XCTAssertNotNil(sidebar.hitTest(p).flatMap { $0.acceptsFirstMouse(for: nil) ? $0 : nil })
+        ws.customTitle = "two" // a title change rebuilds the row; no layout pass runs before the click
+        sidebar.update([ws], selected: nil)
+        let hit = try XCTUnwrap(sidebar.hitTest(p))
+        XCTAssertTrue(hit.acceptsFirstMouse(for: nil), "the click fell through to \(type(of: hit))")
+    }
+}

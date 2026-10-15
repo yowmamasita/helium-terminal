@@ -142,6 +142,8 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             stack.addArrangedSubview(v)
             v.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
+        // New rows have no size until layout, and a click queued behind a title spinner's rebuild would miss them.
+        layoutSubtreeIfNeeded()
     }
 
     weak var actions: TabGroupActions?
@@ -192,43 +194,67 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         case row(Workspace)
     }
 
-    private let dropLine: NSView = {
-        let v = NSView()
-        v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        v.layer?.cornerRadius = 1
-        return v
-    }()
-
-    /// The gap between stack items nearest the pointer, 0 being above the first.
-    private func slot(at event: NSEvent) -> Int {
-        stack.arrangedSubviews.firstIndex { v in
-            let p = v.convert(event.locationInWindow, from: nil)
-            return v.isFlipped ? p.y < v.bounds.midY : p.y > v.bounds.midY
-        } ?? stack.arrangedSubviews.count
-    }
-
-    func dragMoved(_ row: NSView, _ event: NSEvent) {
-        if !dragging {
-            dragging = true
-            row.alphaValue = 0.5
-            stack.superview?.addSubview(dropLine)
+    /// Drags `ws`'s row like an iTerm2 tab: the row lifts and follows the pointer while the others slide apart to
+    /// open a gap where it will land. A tracking loop rather than the row's own mouse events, because selecting the
+    /// tab on mouse down rebuilds the sidebar and takes the pressed row out of the window.
+    func trackDrag(_ ws: Workspace, from down: NSEvent) {
+        guard let window, let doc = stack.superview else { return }
+        let start = down.locationInWindow
+        var lifted: (row: NSView, gap: NSView, grab: CGFloat)?
+        NSEvent.startPeriodicEvents(afterDelay: 0.1, withPeriod: 0.05) // keeps autoscroll going on a still pointer
+        defer { NSEvent.stopPeriodicEvents() }
+        var last = down
+        window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp, .periodic], timeout: .infinity,
+                           mode: .eventTracking) { event, stop in
+            guard let event else { return }
+            if event.type != .periodic { last = event }
+            if event.type == .leftMouseUp { stop.pointee = true; return }
+            if lifted == nil {
+                // A few points of slack so a shaky click doesn't count as a drag.
+                guard hypot(last.locationInWindow.x - start.x, last.locationInWindow.y - start.y) > 4,
+                      let row = rowViews[ObjectIdentifier(ws)], let i = stack.arrangedSubviews.firstIndex(of: row)
+                else { return }
+                dragging = true
+                let frame = doc.convert(row.frame, from: stack)
+                let gap = NSView()
+                gap.heightAnchor.constraint(equalToConstant: frame.height).isActive = true
+                stack.insertArrangedSubview(gap, at: i)
+                gap.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+                doc.addSubview(row) // out of the stack, on top of it
+                row.translatesAutoresizingMaskIntoConstraints = true
+                row.frame = frame
+                row.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.95).cgColor
+                row.shadow = NSShadow()
+                row.layer?.shadowOpacity = 0.3
+                row.layer?.shadowRadius = 6
+                row.layer?.shadowOffset = CGSize(width: 0, height: -2)
+                lifted = (row, gap, doc.convert(start, from: nil).y - frame.minY)
+            }
+            guard let (row, gap, grab) = lifted else { return }
+            _ = (doc.superview as? NSClipView)?.autoscroll(with: last)
+            let p = doc.convert(last.locationInWindow, from: nil)
+            row.frame.origin.y = min(max(p.y - grab, 0), max(stack.frame.maxY - row.frame.height, 0))
+            // The gap goes after every other item whose middle is above the lifted row's middle.
+            let others = stack.arrangedSubviews.filter { $0 !== gap }
+            let slot = others.filter { doc.convert($0.frame, from: stack).midY < row.frame.midY }.count
+            guard stack.arrangedSubviews.firstIndex(of: gap) != slot else { return }
+            stack.removeArrangedSubview(gap)
+            stack.insertArrangedSubview(gap, at: slot)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.allowsImplicitAnimation = true
+                stack.layoutSubtreeIfNeeded()
+            }
         }
-        _ = (stack.superview?.superview as? NSClipView)?.autoscroll(with: event)
-        let views = stack.arrangedSubviews
-        let i = slot(at: event)
-        // Halfway into the spacing between the items on either side of the gap.
-        let y: CGFloat = i < views.count ? views[i].frame.minY - stack.spacing / 2 : (views.last?.frame.maxY ?? 0) + 1
-        let doc = stack.superview!
-        dropLine.frame = doc.convert(NSRect(x: 4, y: y - 1, width: stack.bounds.width + 8, height: 2), from: stack)
-    }
-
-    func dragEnded(_ ws: Workspace, _ event: NSEvent) {
-        guard dragging else { return }
+        guard let (row, gap, _) = lifted else { return }
+        let slot = stack.arrangedSubviews.firstIndex(of: gap) ?? 0
+        row.removeFromSuperview()
+        gap.removeFromSuperview()
         dragging = false
-        dropLine.removeFromSuperview()
-        lastSignature = "" // the dragged row is dimmed; rebuild even if the order stays
-        let t = Self.dropTarget(kinds, slot: slot(at: event))
+        lastSignature = "" // the row was taken out of the stack; rebuild even if the order stays
+        var items = kinds
+        items.removeAll { if case .row(let w) = $0 { w === ws } else { false } }
+        let t = Self.dropTarget(items, slot: slot)
         actions?.move(ws, before: t.before, group: t.group)
     }
 
@@ -384,9 +410,6 @@ private final class Row: NSView, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    private var downAt: NSPoint?
-    private var dragging = false
-
     // Labels would take clicks on the row's text; only the title being renamed keeps its own.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
@@ -396,21 +419,9 @@ private final class Row: NSView, NSTextFieldDelegate {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        downAt = event.locationInWindow
-        if event.clickCount == 2 { beginEditing() } else { onClick() }
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        // A few points of slack so a shaky click doesn't count as a drag.
-        guard let d = downAt else { return }
-        dragging = dragging || hypot(event.locationInWindow.x - d.x, event.locationInWindow.y - d.y) > 4
-        if dragging { sidebar?.dragMoved(self, event) }
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        downAt = nil
-        if dragging { sidebar?.dragEnded(ws, event) }
-        dragging = false
+        if event.clickCount == 2 { return beginEditing() }
+        onClick()
+        sidebar?.trackDrag(ws, from: event)
     }
 
     // MARK: Title editing
