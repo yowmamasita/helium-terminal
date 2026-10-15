@@ -333,7 +333,7 @@ private final class Row: NSView, NSTextFieldDelegate {
         title.lineBreakMode = .byTruncatingTail
         title.delegate = self
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let shortcut = Self.label(m.index <= 9 ? "⌘\(m.index)" : "", .systemFont(ofSize: 10), .tertiaryLabelColor)
+        let shortcut = Self.label(m.index <= 10 ? "⌘\(m.index % 10)" : "", .systemFont(ofSize: 10), .tertiaryLabelColor)
         let head = NSStackView(views: [title] + m.labels.map(Self.chip) + [NSView(), shortcut])
         head.spacing = 6
 

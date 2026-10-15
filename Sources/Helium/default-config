@@ -1,3 +1,5 @@
 # Match the sidebar's numbered shortcut rather than Ghostty's last-tab default.
 keybind = super+physical:nine=goto_tab:9
 keybind = super+nine=goto_tab:9
+keybind = super+physical:zero=goto_tab:10
+keybind = super+zero=goto_tab:10
