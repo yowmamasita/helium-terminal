@@ -289,7 +289,7 @@ final class SocketServer {
         } else if timedOut {
             reply = ["ok": false, "error": "request timed out"]
         } else if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            reply = DispatchQueue.main.sync { handler(obj) }
+            reply = DispatchQueue.main.sync { autoreleasepool { handler(obj) } } // see Ghostty.tick
         } else {
             reply = ["ok": false, "error": "expected one JSON object per line"]
         }

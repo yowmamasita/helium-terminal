@@ -38,7 +38,8 @@ final class Ghostty {
     }
 
     func tick() {
-        if let app { ghostty_app_tick(app) }
+        // The run loop drains its pool only before sleeping, which a busy main queue may never let it do.
+        if let app { autoreleasepool { ghostty_app_tick(app) } }
     }
 
     func setFocus(_ focused: Bool) {

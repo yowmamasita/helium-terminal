@@ -37,7 +37,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         // Branch and port metadata changes outside the terminal, so poll it.
         // Only the cheap file and libproc reads in Metadata run here; no subprocesses.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            self?.refreshMetadata()
+            autoreleasepool { self?.refreshMetadata() } // see Ghostty.tick
         }
         pollTimer?.tolerance = 1
     }
