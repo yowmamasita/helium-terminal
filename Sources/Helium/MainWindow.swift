@@ -345,12 +345,100 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// Notes which panes run Claude Code or Codex, so a relaunch can resume them.
+    private let agentLookups = DispatchGroup()
+    private var codexHomesInFlight = Set<String>()
+
+    /// Lifecycle reports are tiny local files. Codex's daemon/database work stays off AppKit.
     func refreshAgents(_ tree: ProcessTree = ProcessTree()) {
-        for p in workspaces.flatMap(\.panes) {
-            p.agent = p.surface.ttyName.flatMap(Metadata.ttyDevice).flatMap { Agents.session(onTTY: $0, tree: tree) }
-            if p.waiting, let t = p.agent?.unblockedAt, t > p.waitingSince { p.waiting = false }
+        struct Request {
+            let pane: PaneView
+            let process: AgentProcess
+            let prefix: String
+            let home: URL
         }
+        var codex: [String: [Request]] = [:]
+        for pane in workspaces.flatMap(\.panes) {
+            guard let tty = pane.surface.ttyName, let dev = Metadata.ttyDevice(tty) else { continue }
+            let snapshot = Agents.snapshot(onTTY: dev, tree: tree, foregroundPID: pane.surface.foregroundPID,
+                                           directory: pane.surface.agentStateDirectory, token: pane.surface.agentToken,
+                                           ttyName: tty)
+            guard let process = snapshot.process else {
+                if !pane.awaitingAgentStart { pane.agent = nil }
+                pane.codexProcess = nil
+                pane.codexLookup = nil
+                continue
+            }
+            if process.invocation.kind != .codex {
+                pane.codexProcess = nil
+                pane.codexLookup = nil
+                // OpenCode's initial home route can precede --session startup. Keep the resume
+                // intent until a conversation is selected or the user acts in the pane.
+                if pane.awaitingAgentStart, pane.agent?.kind == .opencode,
+                   pane.agent?.sessionID.isEmpty == false, snapshot.session?.unpersisted == true { continue }
+                if snapshot.reported || snapshot.session != nil || !pane.awaitingAgentStart
+                    || pane.agent?.kind != process.invocation.kind {
+                    pane.agent = snapshot.session
+                    pane.awaitingAgentStart = false
+                }
+                if pane.waiting, let time = pane.agent?.unblockedAt, time > pane.waitingSince { pane.waiting = false }
+                continue
+            }
+            if pane.codexProcess != process.identity {
+                pane.codexProcess = process.identity
+                pane.codexLookup = nil
+            }
+            guard let prefix = pane.surface.codexPrefix else {
+                if !pane.awaitingAgentStart { pane.agent = nil }
+                continue
+            }
+            // Never save the previous conversation while a different selection is resolving.
+            if pane.agent?.kind != .codex || pane.agent?.sessionID.hasPrefix(prefix) != true { pane.agent = nil }
+            let home = AgentIntegrations.path(process.environment["CODEX_HOME"],
+                                              relativeTo: URL(fileURLWithPath: process.environment["HOME"] ?? NSHomeDirectory()),
+                                              default: ".codex").resolvingSymlinksInPath()
+            codex[home.path, default: []].append(Request(pane: pane, process: process, prefix: prefix, home: home))
+        }
+        for (homePath, requests) in codex where codexHomesInFlight.insert(homePath).inserted {
+            for request in requests { request.pane.codexLookup = request.prefix }
+            agentLookups.enter()
+            let group = agentLookups
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let selections = CodexSessions.resolve(requests: requests.map { ($0.prefix, $0.process.identity.pid) },
+                                                       home: requests[0].home)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { group.leave(); return }
+                    self.codexHomesInFlight.remove(homePath)
+                    for request in requests {
+                        let pane = request.pane
+                        guard pane.workspace != nil, pane.superview != nil,
+                              pane.codexProcess == request.process.identity,
+                              pane.surface.codexPrefix == request.prefix,
+                              AgentProcess.identity(request.process.identity.pid) == request.process.identity else { continue }
+                        if let selection = selections[request.process.identity.pid] {
+                            pane.agent = AgentSession(kind: .codex, sessionID: selection.sessionID,
+                                                      cwd: selection.cwd ?? Metadata.cwd(of: request.process.identity.pid),
+                                                      flags: AgentSession.resumableFlags(.codex, request.process.invocation.arguments),
+                                                      sessionFile: selection.sessionFile,
+                                                      environment: request.process.environment.isEmpty ? nil : request.process.environment,
+                                                      unpersisted: selection.unpersisted ? true : nil, command: request.process.command)
+                        } else { pane.agent = nil } // Unknown/ambiguous means no automatic conversation choice.
+                        pane.awaitingAgentStart = false
+                    }
+                    // A route may have changed while its previous lookup was running.
+                    if self.workspaces.flatMap(\.panes).contains(where: {
+                        $0.codexProcess != nil && $0.surface.codexPrefix != nil && $0.surface.codexPrefix != $0.codexLookup
+                    }) { self.refreshAgents() }
+                    self.saveState()
+                    group.leave()
+                }
+            }
+        }
+    }
+
+    /// Quit waits for bounded metadata reads without blocking the main thread.
+    func prepareAgentStateForQuit(_ completion: @escaping () -> Void) {
+        refreshAgents()
+        agentLookups.notify(queue: .main, execute: completion)
     }
 
     // MARK: Window
@@ -409,34 +497,44 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 }
 
 /// Lays out the fixed-width sidebar and the terminal area.
-private final class ContainerView: NSView {
+final class ContainerView: NSView {
     let sidebar: NSView
     let content: NSView
     private let handle = ResizeHandle()
     /// The selected tab's git branch and status, in the titlebar strip above the terminal.
     private let info = NSStackView()
     private var infoParts: [String] = []
+    private var infoLabels: [ClickThroughLabel] = []
+    private var infoSeparators: [NSBox] = []
 
-    /// Labels with native separators between them; rebuilt only when the text changes.
+    /// Keep labels and native separators alive while the selected tab's status changes.
     func setInfo(_ parts: [String]) {
         guard parts != infoParts else { return }
         infoParts = parts
-        info.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        while infoLabels.count > parts.count {
+            infoLabels.removeLast().removeFromSuperview()
+            if !infoSeparators.isEmpty { infoSeparators.removeLast().removeFromSuperview() }
+        }
         for (i, text) in parts.enumerated() {
-            if i > 0 {
-                let line = NSBox()
-                line.boxType = .separator
-                line.translatesAutoresizingMaskIntoConstraints = false
-                line.heightAnchor.constraint(equalToConstant: 14).isActive = true
-                line.widthAnchor.constraint(equalToConstant: 1).isActive = true // narrow, so it draws vertically
-                info.addArrangedSubview(line)
+            if i == infoLabels.count {
+                if i > 0 {
+                    let line = NSBox()
+                    line.boxType = .separator
+                    line.translatesAutoresizingMaskIntoConstraints = false
+                    line.heightAnchor.constraint(equalToConstant: 14).isActive = true
+                    line.widthAnchor.constraint(equalToConstant: 1).isActive = true
+                    info.addArrangedSubview(line)
+                    infoSeparators.append(line)
+                }
+                let label = ClickThroughLabel(labelWithString: "")
+                label.font = .systemFont(ofSize: 12, weight: .medium)
+                label.textColor = .secondaryLabelColor
+                label.lineBreakMode = .byTruncatingTail
+                label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                info.addArrangedSubview(label)
+                infoLabels.append(label)
             }
-            let l = ClickThroughLabel(labelWithString: text)
-            l.font = .systemFont(ofSize: 12, weight: .medium)
-            l.textColor = .secondaryLabelColor
-            l.lineBreakMode = .byTruncatingTail
-            l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            info.addArrangedSubview(l)
+            if infoLabels[i].stringValue != text { infoLabels[i].stringValue = text }
         }
         needsLayout = true
     }

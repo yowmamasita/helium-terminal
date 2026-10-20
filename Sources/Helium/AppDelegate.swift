@@ -4,9 +4,12 @@ import GhosttyKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: MainWindowController!
     private var server: SocketServer?
+    private var quitting = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = Self.makeMenu()
+        let state = SessionState.restoreEnabled ? SessionState.load() : nil
+        if SessionState.restoreEnabled { AgentIntegrations.install(restoring: state) }
         guard Ghostty.shared.start() else {
             let alert = NSAlert()
             alert.messageText = "libghostty failed to start"
@@ -16,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller = MainWindowController()
         Ghostty.shared.window = controller
-        if !(SessionState.restoreEnabled && SessionState.load().map(controller.restore) == true) {
+        if !(state.map(controller.restore) == true) {
             controller.newWorkspace()
         }
         controller.showWindow(nil)
@@ -33,21 +36,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agents are still running here, so this captures them. Closing the window instead
         // empties the tabs first, which makes the next launch start fresh.
         if SessionState.restoreEnabled, let controller {
-            controller.refreshAgents()
+            // prepareAgentStateForQuit has already captured any asynchronous Codex selection.
             controller.saveState()
         }
         server?.stop()
+        AgentIntegrations.removeRuntimeDirectory()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Not window.isVisible: a minimized window or hidden app still has running processes.
-        guard controller?.workspaces.isEmpty == false, Ghostty.shared.needsConfirmQuit else { return .terminateNow }
-        let alert = NSAlert()
-        alert.messageText = "Quit Helium?"
-        alert.informativeText = "Processes are still running."
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        guard controller?.workspaces.isEmpty == false else { return .terminateNow }
+        if quitting { return .terminateLater }
+        if Ghostty.shared.needsConfirmQuit {
+            let alert = NSAlert()
+            alert.messageText = "Quit Helium?"
+            alert.informativeText = "Processes are still running."
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        }
+        guard SessionState.restoreEnabled else { return .terminateNow }
+        quitting = true
+        controller.prepareAgentStateForQuit { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     // Cmd+Q, Cmd+H and friends; terminal keybinds come from the Ghostty config.

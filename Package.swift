@@ -11,9 +11,10 @@ let package = Package(
             name: "helium-terminal",
             dependencies: ["GhosttyKit"],
             path: "Sources/Helium",
-            resources: [.copy("default-config")],
+            resources: [.copy("default-config"), .copy("agent-integration")],
             linkerSettings: [
                 .linkedLibrary("c++"),
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("Metal"),
                 .linkedFramework("QuartzCore"),

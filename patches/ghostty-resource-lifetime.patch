@@ -1,0 +1,724 @@
+diff --git a/src/App.zig b/src/App.zig
+index b484484a5..d35a28216 100644
+--- a/src/App.zig
++++ b/src/App.zig
+@@ -146,6 +146,7 @@ pub fn deinit(self: *App) void {
+     // Clean up all our surfaces
+     for (self.surfaces.items) |surface| surface.deinit();
+     self.surfaces.deinit(self.alloc);
++    while (self.mailbox.pop(global.io())) |msg| msg.deinit();
+ 
+     // Clean up our font group cache
+     // We should have zero items in the grid set at this point because
+@@ -533,11 +534,12 @@ fn surfaceMessage(self: *App, surface: *Surface, msg: apprt.surface.Message) !vo
+     // are quite rare and we normally don't have many windows so we do
+     // a simple linear search here.
+     if (self.hasSurface(surface)) {
+-        try surface.handleMessage(msg);
++        return surface.handleMessage(msg);
+     }
+ 
+     // Window was not found, it probably quit before we handled the message.
+     // Not a problem.
++    msg.deinit();
+ }
+ 
+ fn hasSurface(self: *const App, surface: *const Surface) bool {
+@@ -579,6 +581,13 @@ pub const Message = union(enum) {
+         message: apprt.surface.Message,
+     },
+ 
++    pub fn deinit(self: *const Message) void {
++        switch (self.*) {
++            .surface_message => |v| v.message.deinit(),
++            else => {},
++        }
++    }
++
+     const NewWindow = struct {
+         /// The parent surface
+         parent: ?*Surface = null,
+@@ -603,6 +612,8 @@ pub const Mailbox = struct {
+     /// Send a message to the surface.
+     pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
+         const result = self.mailbox.push(global.io(), msg, timeout);
++        // An instant failure leaves ownership with the caller for a retry.
++        if (result == 0 and timeout != .instant) msg.deinit();
+ 
+         // Wake up our app loop
+         self.rt_app.wakeup();
+diff --git a/src/Surface.zig b/src/Surface.zig
+index a2dcd9b28..bff634c52 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -529,6 +529,9 @@ pub fn init(
+         &derived_config.font,
+         font_size,
+     );
++    var initial_font_key = font_grid_key;
++    var font_key_owner = &initial_font_key;
++    errdefer app.font_grid_set.deref(font_key_owner.*);
+ 
+     // Build our size struct which has all the sizes we need.
+     const size: rendererpkg.Size = size: {
+@@ -569,7 +572,9 @@ pub fn init(
+         .rt_surface = rt_surface,
+         .thread = &self.renderer_thread,
+     });
+-    errdefer renderer_impl.deinit();
++    var renderer_owner = &renderer_impl;
++    var renderer_deinitialized = false;
++    errdefer if (!renderer_deinitialized) renderer_owner.deinit();
+ 
+     // The mutex used to protect our renderer state.
+     const mutex = try alloc.create(std.Io.Mutex);
+@@ -584,11 +589,17 @@ pub fn init(
+         &self.renderer,
+         &self.renderer_state,
+     );
+-    errdefer render_thread.deinit();
++    var render_thread_owner = &render_thread;
++    errdefer {
++        renderer_owner.deinit();
++        renderer_deinitialized = true;
++        render_thread_owner.deinit();
++    }
+ 
+     // Create the IO thread
+     var io_thread = try termio.Thread.init(alloc);
+-    errdefer io_thread.deinit();
++    var io_thread_owner = &io_thread;
++    errdefer io_thread_owner.deinit();
+ 
+     self.* = .{
+         .id = id: {
+@@ -629,6 +640,10 @@ pub fn init(
+         // lets us get the most likely correct color theme and so on.
+         .config_conditional_state = app.config_conditional_state,
+     };
++    renderer_owner = &self.renderer;
++    render_thread_owner = &self.renderer_thread;
++    font_key_owner = &self.font_grid_key;
++    io_thread_owner = &self.io_thread;
+ 
+     // The command we're going to execute
+     const command: ?configpkg.Command = command: {
+@@ -729,6 +744,10 @@ pub fn init(
+         .{&self.renderer_thread},
+     );
+     self.renderer_thr.setName(global.io(), "renderer") catch {};
++    errdefer {
++        self.renderer_thread.stop.notify() catch {};
++        self.renderer_thr.join();
++    }
+ 
+     // Start our IO thread
+     self.io_thr = try std.Thread.spawn(
+@@ -737,6 +756,10 @@ pub fn init(
+         .{ &self.io_thread, &self.io },
+     );
+     self.io_thr.setName(global.io(), "io") catch {};
++    errdefer {
++        self.io_thread.stop.notify() catch {};
++        self.io_thr.join();
++    }
+ 
+     // Determine our initial window size if configured. We need to do this
+     // quite late in the process because our height/width are in grid dimensions,
+@@ -1474,13 +1497,14 @@ fn searchCallback_(
+     switch (event) {
+         .viewport_matches => |matches_unowned| {
+             var arena: ArenaAllocator = .init(self.alloc);
+-            errdefer arena.deinit();
++            var transferred = false;
++            errdefer if (!transferred) arena.deinit();
+             const alloc = arena.allocator();
+ 
+             const matches = try alloc.dupe(terminal.highlight.Flattened, matches_unowned);
+             for (matches) |*m| m.* = try m.clone(alloc);
+ 
+-            _ = self.renderer_thread.mailbox.push(
++            _ = self.renderer_thread.mailbox.pushOwned(
+                 global.io(),
+                 .{ .search_viewport_matches = .{
+                     .arena = arena,
+@@ -1488,6 +1512,7 @@ fn searchCallback_(
+                 } },
+                 .forever,
+             );
++            transferred = true;
+             try self.renderer_thread.wakeup.notify();
+         },
+ 
+@@ -1495,11 +1520,12 @@ fn searchCallback_(
+             if (selected_) |sel| {
+                 // Copy the flattened match.
+                 var arena: ArenaAllocator = .init(self.alloc);
+-                errdefer arena.deinit();
++                var transferred = false;
++                errdefer if (!transferred) arena.deinit();
+                 const alloc = arena.allocator();
+                 const match = try sel.highlight.clone(alloc);
+ 
+-                _ = self.renderer_thread.mailbox.push(
++                _ = self.renderer_thread.mailbox.pushOwned(
+                     global.io(),
+                     .{ .search_selected_match = .{
+                         .arena = arena,
+@@ -1507,6 +1533,7 @@ fn searchCallback_(
+                     } },
+                     .forever,
+                 );
++                transferred = true;
+ 
+                 // Send the selected index to the surface mailbox
+                 _ = self.surfaceMailbox().push(
+@@ -1839,22 +1866,25 @@ pub fn updateConfig(
+         break :font_size size;
+     });
+ 
+-    // We need to store our configs in a heap-allocated pointer so that
+-    // our messages aren't huge.
+-    var renderer_message = try rendererpkg.Message.initChangeConfig(self.alloc, config);
+-    errdefer renderer_message.deinit();
+-    var termio_config_ptr = try self.alloc.create(termio.Termio.DerivedConfig);
+-    errdefer self.alloc.destroy(termio_config_ptr);
+-    termio_config_ptr.* = try termio.Termio.DerivedConfig.init(self.alloc, config);
+-    errdefer termio_config_ptr.deinit();
+-
+-    _ = self.renderer_thread.mailbox.push(global.io(), renderer_message, .{ .forever = {} });
+-    self.queueIo(.{
+-        .change_config = .{
+-            .alloc = self.alloc,
+-            .ptr = termio_config_ptr,
+-        },
+-    }, .unlocked);
++    {
++        // Heap-allocate configs to keep messages small. This scope ends
++        // their error cleanup when ownership transfers to the queues.
++        var renderer_message = try rendererpkg.Message.initChangeConfig(self.alloc, config);
++        errdefer renderer_message.deinit();
++        var termio_config_ptr = try self.alloc.create(termio.Termio.DerivedConfig);
++        errdefer self.alloc.destroy(termio_config_ptr);
++        termio_config_ptr.* = try termio.Termio.DerivedConfig.init(self.alloc, config);
++        errdefer termio_config_ptr.deinit();
++
++        if (self.renderer_thread.mailbox.push(global.io(), renderer_message, .forever) == 0)
++            return error.RendererUnavailable;
++        self.queueIo(.{
++            .change_config = .{
++                .alloc = self.alloc,
++                .ptr = termio_config_ptr,
++            },
++        }, .unlocked);
++    }
+ 
+     // With mailbox messages sent, we have to wake them up so they process it.
+     self.queueRender() catch |err| {
+@@ -2520,14 +2550,14 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+ 
+     // Notify our render thread of the new font stack. The renderer
+     // MUST accept the new font grid and deref the old.
+-    _ = self.renderer_thread.mailbox.push(global.io(), .{
++    if (self.renderer_thread.mailbox.push(global.io(), .{
+         .font_grid = .{
+             .grid = font_grid,
+             .set = &self.app.font_grid_set,
+             .old_key = self.font_grid_key,
+             .new_key = font_grid_key,
+         },
+-    }, .{ .forever = {} });
++    }, .{ .forever = {} }) == 0) return error.RendererUnavailable;
+ 
+     // Once we've sent the key we can replace our key
+     self.font_grid_key = font_grid_key;
+@@ -5100,7 +5130,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+                 break :search;
+             }
+ 
+-            _ = s.state.mailbox.push(
++            _ = s.state.mailbox.pushOwned(
+                 global.io(),
+                 .{ .change_needle = try .init(
+                     self.alloc,
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index b237c23cf..3c14d235c 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -881,6 +881,7 @@ pub const Surface = struct {
+             raw_contents.len,
+         ) catch |err| {
+             log.err("error completing clipboard request err={}", .{err});
++            self.core_surface.denyClipboardRequest(state.*);
+             alloc.destroy(state);
+             return;
+         };
+@@ -897,6 +898,7 @@ pub const Surface = struct {
+             raw_available.len,
+         ) catch |err| {
+             log.err("error completing clipboard request err={}", .{err});
++            self.core_surface.denyClipboardRequest(state.*);
+             alloc.destroy(state);
+             return;
+         };
+diff --git a/src/apprt/surface.zig b/src/apprt/surface.zig
+index 3b1a04d8a..7a2ddab71 100644
+--- a/src/apprt/surface.zig
++++ b/src/apprt/surface.zig
+@@ -160,6 +160,17 @@ pub const Message = union(enum) {
+     /// Renderer pushed a new frame, redraw this surface.
+     redraw,
+ 
++    /// Release an owned message that will never reach its surface.
++    pub fn deinit(self: *const Message) void {
++        switch (self.*) {
++            .kitty_clipboard_read => |v| v.destroy(),
++            .kitty_clipboard_write => |v| v.destroy(),
++            .clipboard_write => |v| v.req.deinit(),
++            .pwd_change => |v| v.deinit(),
++            else => {},
++        }
++    }
++
+     pub const ReportTitleStyle = enum {
+         csi_21_t,
+ 
+@@ -322,3 +333,27 @@ test "copyUtf8Z preserves UTF-8 that fits" {
+ 
+     try std.testing.expectEqualStrings("abcЯ", std.mem.sliceTo(&dst, 0));
+ }
++
++test "discarded owned surface messages release their payloads" {
++    const alloc = std.testing.allocator;
++    const text: []const u8 = "x" ** 1024;
++    const pwd: Message = .{ .pwd_change = try Message.WriteReq.init(alloc, text) };
++    pwd.deinit();
++    const clipboard: Message = .{ .clipboard_write = .{
++        .clipboard_type = .standard,
++        .req = try Message.WriteReq.init(alloc, text),
++    } };
++    clipboard.deinit();
++    inline for (.{ apprt.ClipboardRequest.KittyRead, apprt.ClipboardRequest.KittyWrite }) |Request| {
++        var arena = std.heap.ArenaAllocator.init(alloc);
++        errdefer arena.deinit();
++        const req = try arena.allocator().create(Request);
++        req.* = undefined;
++        req.arena = arena;
++        const msg: Message = if (Request == apprt.ClipboardRequest.KittyRead)
++            .{ .kitty_clipboard_read = req }
++        else
++            .{ .kitty_clipboard_write = req };
++        msg.deinit();
++    }
++}
+diff --git a/src/datastruct/blocking_queue.zig b/src/datastruct/blocking_queue.zig
+index 76d960a4b..2b036e418 100644
+--- a/src/datastruct/blocking_queue.zig
++++ b/src/datastruct/blocking_queue.zig
+@@ -120,38 +120,28 @@ pub fn BlockingQueue(
+             self.mutex.lockUncancelable(io);
+             defer self.mutex.unlock(io);
+ 
+-            // The
+-            if (self.full()) {
++            // Compute one deadline for the entire push, not one per wakeup.
++            const deadline: std.Io.Timeout = switch (timeout) {
++                .ns => |ns| (std.Io.Timeout{ .duration = .{
++                    .raw = .fromNanoseconds(ns),
++                    .clock = .awake,
++                } }).toDeadline(io),
++                else => .none,
++            };
++            while (self.full()) {
++                if (timeout == .instant) return 0;
++                self.not_full_waiters += 1;
++                defer self.not_full_waiters -= 1;
+                 switch (timeout) {
+-                    // If we're not waiting, then we failed to write.
+-                    .instant => return 0,
+-
+-                    .forever => {
+-                        self.not_full_waiters += 1;
+-                        defer self.not_full_waiters -= 1;
+-                        self.cond_not_full.waitUncancelable(io, &self.mutex);
+-                    },
+-
+-                    .ns => |ns| {
+-                        self.not_full_waiters += 1;
+-                        defer self.not_full_waiters -= 1;
+-                        compat_thread.waitTimeout(
+-                            &self.cond_not_full,
+-                            io,
+-                            &self.mutex,
+-                            .{
+-                                .duration = .{
+-                                    .raw = .fromNanoseconds(ns),
+-                                    .clock = .awake,
+-                                },
+-                            },
+-                        ) catch return 0;
+-                    },
++                    .instant => unreachable,
++                    .forever => self.cond_not_full.waitUncancelable(io, &self.mutex),
++                    .ns => compat_thread.waitTimeout(
++                        &self.cond_not_full,
++                        io,
++                        &self.mutex,
++                        deadline,
++                    ) catch return 0,
+                 }
+-
+-                // If we're still full, then we failed to write. This can
+-                // happen in situations where we are interrupted.
+-                if (self.full()) return 0;
+             }
+ 
+             // Add our data and update our accounting
+@@ -163,6 +153,14 @@ pub fn BlockingQueue(
+             return self.len;
+         }
+ 
++        /// Transfer ownership even if a bounded send is rejected. Do not use
++        /// this for an instant probe that the caller will retry.
++        pub fn pushOwned(self: *Self, io: std.Io, value: T, timeout: Timeout) Size {
++            const result = self.push(io, value, timeout);
++            if (result == 0) value.deinit();
++            return result;
++        }
++
+         /// Pop a value from the queue without blocking.
+         pub fn pop(self: *Self, io: std.Io) ?T {
+             self.mutex.lockUncancelable(io);
+@@ -210,7 +208,7 @@ pub fn BlockingQueue(
+ 
+             pub fn deinit(self: *DrainIterator, io: std.Io) void {
+                 // If we have consumers waiting on a full queue, notify.
+-                if (self.queue.not_full_waiters > 0) self.queue.cond_not_full.signal(io);
++                if (self.queue.not_full_waiters > 0) self.queue.cond_not_full.broadcast(io);
+ 
+                 // Unlock
+                 self.queue.mutex.unlock(io);
+@@ -276,3 +274,64 @@ test "timed push" {
+     // Timed push should fail
+     try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .ns = 1000 }));
+ }
++
++test "forever push preserves final update after wake without capacity" {
++    const testing = std.testing;
++    const io = testing.io;
++    const Q = BlockingQueue(u64, 1);
++    var q: Q = .{};
++    try testing.expectEqual(@as(Q.Size, 1), q.push(io, 1, .instant));
++    const Producer = struct {
++        fn run(queue: *Q, result: *Q.Size) void {
++            result.* = queue.push(std.testing.io, 99, .forever);
++        }
++    };
++    var result: Q.Size = 0;
++    const producer = try std.Thread.spawn(.{}, Producer.run, .{ &q, &result });
++    defer producer.join();
++    // Always release the producer, including when an assertion fails.
++    defer _ = q.pop(io);
++    while (true) {
++        q.mutex.lockUncancelable(io);
++        if (q.not_full_waiters != 0) break;
++        q.mutex.unlock(io);
++        std.Thread.yield() catch {};
++    }
++    // Notify without freeing a slot, just as when another producer wins it.
++    q.cond_not_full.signal(io);
++    q.mutex.unlock(io);
++    while (true) {
++        q.mutex.lockUncancelable(io);
++        const consumed = q.cond_not_full.state.load(.acquire).signals == 0;
++        const waiting = q.not_full_waiters != 0;
++        q.mutex.unlock(io);
++        if (consumed) {
++            try testing.expect(waiting);
++            break;
++        }
++        std.Thread.yield() catch {};
++    }
++    try testing.expectEqual(@as(?u64, 1), q.pop(io));
++    // Joining before inspecting verifies the final update was really queued.
++    // A separate scope is needed since the deferred join runs on return.
++    while (true) {
++        q.mutex.lockUncancelable(io);
++        const ready = q.len != 0;
++        q.mutex.unlock(io);
++        if (ready) break;
++        std.Thread.yield() catch {};
++    }
++    try testing.expectEqual(@as(?u64, 99), q.pop(io));
++}
++
++test "owned rejection frees allocation but instant probe retains it" {
++    const testing = std.testing;
++    const Data = @import("message_data.zig").MessageData(u8, 1);
++    const Q = BlockingQueue(Data, 1);
++    var q: Q = .{};
++    try testing.expectEqual(@as(Q.Size, 1), q.push(testing.io, .{ .stable = "full" }, .instant));
++    const message = try Data.init(testing.allocator, @as([]const u8, "owned"));
++    try testing.expectEqual(@as(Q.Size, 0), q.push(testing.io, message, .instant));
++    try testing.expectEqualStrings("owned", message.slice());
++    try testing.expectEqual(@as(Q.Size, 0), q.pushOwned(testing.io, message, .{ .ns = 1 }));
++}
+diff --git a/src/renderer/Thread.zig b/src/renderer/Thread.zig
+index 34f00e892..4170bbe11 100644
+--- a/src/renderer/Thread.zig
++++ b/src/renderer/Thread.zig
+@@ -199,6 +199,7 @@ pub fn deinit(self: *Thread) void {
+     self.loop.deinit();
+ 
+     // Nothing can possibly access the mailbox anymore, destroy it.
++    while (self.mailbox.pop(global.io())) |message| message.deinit();
+     self.mailbox.destroy(self.alloc);
+ }
+ 
+@@ -421,7 +422,10 @@ fn drainMailbox(self: *Thread) !void {
+             .change_config => |config| {
+                 defer config.alloc.destroy(config.thread);
+                 defer config.alloc.destroy(config.impl);
++                var transferred = false;
++                defer if (!transferred) config.impl.deinit();
+                 try self.changeConfig(config.thread);
++                transferred = true;
+                 try self.renderer.changeConfig(config.impl);
+ 
+                 // The config affects what animation wakes the
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 5a021b087..c6503438b 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -33,6 +33,23 @@ const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
+ 
+ const FileType = @import("../file_type.zig").FileType;
+ 
++/// Initialize a whole swap-chain, rolling back only completed frames.
++/// Kept independent of the graphics backend so allocation failures can
++/// exercise the same rollback used for real GPU frame state.
++fn initFrameStates(
++    comptime Frame: type,
++    frames: []Frame,
++    api: anytype,
++    custom_shaders: bool,
++) !void {
++    var initialized: usize = 0;
++    errdefer for (frames[0..initialized]) |*frame| frame.deinit();
++    for (frames) |*frame| {
++        frame.* = try Frame.init(api, custom_shaders);
++        initialized += 1;
++    }
++}
++
+ const macos = switch (builtin.os.tag) {
+     .macos => @import("macos"),
+     else => void,
+@@ -314,11 +331,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+             pub fn init(api: GraphicsAPI, custom_shaders: bool) !SwapChain {
+                 var result: SwapChain = .{ .frames = undefined };
+-
+-                // Initialize all of our frame state.
+-                for (&result.frames) |*frame| {
+-                    frame.* = try FrameState.init(api, custom_shaders);
+-                }
++                try initFrameStates(FrameState, &result.frames, api, custom_shaders);
+ 
+                 return result;
+             }
+@@ -704,6 +717,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         };
+ 
+         pub fn init(alloc: Allocator, options: renderer.Options) !Self {
++            // Initialization takes ownership even when a later step fails.
++            var owned_config = options.config;
++            errdefer owned_config.deinit();
+             // Initialize our graphics API wrapper, this will prepare the
+             // surface provided by the apprt and set up any API- and surface-
+             // specific GPU resources.
+@@ -2158,6 +2174,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+         /// Update the configuration.
+         pub fn changeConfig(self: *Self, config: *DerivedConfig) !void {
++            var adopted = false;
++            errdefer if (!adopted) config.deinit();
+             self.draw_mutex.lockUncancelable(global.io());
+             defer self.draw_mutex.unlock(global.io());
+ 
+@@ -2207,6 +2225,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+             self.config.deinit();
+             self.config = config.*;
++            adopted = true;
+ 
+             // If our background image path changed, prepare the new bg image.
+             if (bg_image_changed) try self.prepBackgroundImage();
+@@ -3680,3 +3699,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         }
+     };
+ }
++
++test "swap chain frame initialization rolls back every allocation failure" {
++    const Frame = struct {
++        alloc: Allocator,
++        resource: *u8,
++
++        fn init(alloc: Allocator, _: bool) !@This() {
++            return .{ .alloc = alloc, .resource = try alloc.create(u8) };
++        }
++
++        fn deinit(self: *@This()) void {
++            self.alloc.destroy(self.resource);
++        }
++    };
++    const Check = struct {
++        fn run(alloc: Allocator) !void {
++            var frames: [2]Frame = undefined;
++            try initFrameStates(Frame, &frames, alloc, false);
++            defer for (&frames) |*frame| frame.deinit();
++        }
++    };
++    try std.testing.checkAllAllocationFailures(std.testing.allocator, Check.run, .{});
++}
+diff --git a/src/renderer/message.zig b/src/renderer/message.zig
+index 16d3b32c6..669c281da 100644
+--- a/src/renderer/message.zig
++++ b/src/renderer/message.zig
+@@ -110,8 +110,63 @@ pub const Message = union(enum) {
+                 v.alloc.destroy(v.impl);
+                 v.alloc.destroy(v.thread);
+             },
++            // Once queued, the surface owns new_key. The message retains
++            // the renderer's previous key until consumed or discarded.
++            .font_grid => |v| v.set.deref(v.old_key),
++            .search_viewport_matches => |v| {
++                var arena = v.arena;
++                arena.deinit();
++            },
++            .search_selected_match => |v| if (v) |m| {
++                var arena = m.arena;
++                arena.deinit();
++            },
+ 
+             else => {},
+         }
+     }
+ };
++
++test "change config unwinds every allocation failure" {
++    var config = try configpkg.Config.default(std.testing.allocator);
++    defer config.deinit();
++    const Check = struct {
++        fn run(alloc: Allocator, cfg: *const configpkg.Config) !void {
++            const msg = try Message.initChangeConfig(alloc, cfg);
++            msg.deinit();
++        }
++    };
++    try std.testing.checkAllAllocationFailures(std.testing.allocator, Check.run, .{&config});
++}
++
++test "discarded search messages release arenas" {
++    var arena = ArenaAllocator.init(std.testing.allocator);
++    _ = try arena.allocator().alloc(u8, 1024);
++    const msg: Message = .{ .search_viewport_matches = .{
++        .arena = arena,
++        .matches = &.{},
++    } };
++    msg.deinit();
++}
++
++test "discarded queued font grid releases old key only" {
++    const alloc = std.testing.allocator;
++    var config = try configpkg.Config.default(alloc);
++    defer config.deinit();
++    var derived = try font.SharedGridSet.DerivedConfig.init(alloc, &config);
++    defer derived.deinit();
++    var set = try font.SharedGridSet.init(alloc);
++    defer set.deinit();
++    const old_key, _ = try set.ref(&derived, .{ .points = 12 });
++    const new_key, const grid = try set.ref(&derived, .{ .points = 14 });
++    const msg: Message = .{ .font_grid = .{
++        .grid = grid,
++        .set = &set,
++        .old_key = old_key,
++        .new_key = new_key,
++    } };
++    msg.deinit();
++    try std.testing.expectEqual(@as(usize, 1), set.count());
++    set.deref(new_key);
++    try std.testing.expectEqual(@as(usize, 0), set.count());
++}
+diff --git a/src/renderer/metal/Target.zig b/src/renderer/metal/Target.zig
+index f20bb0b7c..437c6ca53 100644
+--- a/src/renderer/metal/Target.zig
++++ b/src/renderer/metal/Target.zig
+@@ -58,6 +58,7 @@ pub fn init(opts: Options) !Self {
+         .bytes_per_element = 4,
+         .colorspace = colorspace,
+     });
++    errdefer surface.deinit();
+ 
+     // Create our descriptor
+     const desc = init: {
+diff --git a/src/terminal/search/Thread.zig b/src/terminal/search/Thread.zig
+index 0b7813219..88c5953d5 100644
+--- a/src/terminal/search/Thread.zig
++++ b/src/terminal/search/Thread.zig
+@@ -121,6 +121,7 @@ pub fn deinit(self: *Thread) void {
+     self.stop.deinit();
+     self.loop.deinit();
+     // Nothing can possibly access the mailbox anymore, destroy it.
++    while (self.mailbox.pop(global.io())) |message| message.deinit();
+     self.mailbox.destroy(self.alloc);
+ 
+     if (self.search) |*s| {
+@@ -536,6 +537,13 @@ pub const Message = union(enum) {
+ 
+     /// Select a search result.
+     select: ScreenSearch.Select,
++
++    pub fn deinit(self: *const Message) void {
++        switch (self.*) {
++            .change_needle => |v| v.deinit(),
++            else => {},
++        }
++    }
+ };
+ 
+ /// Events that can be emitted from the search thread. The caller
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 824c16c47..89ed42b92 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -252,6 +252,8 @@ pub const DerivedConfig = struct {
+ /// This will also start the child process if the termio is configured
+ /// to run a child process.
+ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
++    var owned_config = opts.config;
++    errdefer owned_config.deinit();
+     // The default terminal modes based on our config.
+     const default_modes: terminalpkg.ModePacked = modes: {
+         var modes: terminalpkg.ModePacked = .{};
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index bc4f27ddc..340990bb9 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -162,7 +162,7 @@ pub const StreamHandler = struct {
+         // See termio.Mailbox.send for more details on how this works.
+ 
+         // Try instant first. If it works then we can return.
+-        if (self.renderer_mailbox.push(msg, .{ .instant = {} }) > 0) {
++        if (self.renderer_mailbox.push(global.io(), msg, .{ .instant = {} }) > 0) {
+             return;
+         }
+ 
+@@ -180,7 +180,7 @@ pub const StreamHandler = struct {
+                 .{err},
+             );
+         };
+-        _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
++        _ = self.renderer_mailbox.pushOwned(global.io(), msg, .{ .forever = {} });
+     }
+ 
+     pub fn vt(

@@ -9,8 +9,11 @@ final class PaneView: NSView {
     private let ring = RingView()
     private let linkPreview = ClickThroughLabel(labelWithString: "")
 
-    /// The Claude Code or Codex session running here, refreshed by the metadata poll.
+    /// Exact agent selection from a lifecycle report or native metadata.
     var agent: AgentSession?
+    var awaitingAgentStart = false
+    var codexLookup: String?
+    var codexProcess: AgentProcess.Identity?
 
     /// Something new happened here (notification or bell); cleared by focusing the pane.
     var ringing = false {
@@ -33,6 +36,7 @@ final class PaneView: NSView {
     }
 
     func userTyped() {
+        awaitingAgentStart = false
         guard waiting else { return }
         waiting = false
         workspace?.onChange?()

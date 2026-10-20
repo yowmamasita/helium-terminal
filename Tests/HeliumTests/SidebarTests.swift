@@ -94,7 +94,7 @@ final class SidebarTests: XCTestCase {
     }
 
     /// Exercise row lifting and drop placement without posting events to the owner's desktop.
-    func testDragReordersRowsAfterSelectionRebuild() throws {
+    func testDragReordersRowsAfterSelectionChange() throws {
         final class TrackingWindow: NSWindow {
             var events: [NSEvent] = []
             override func trackEvents(matching mask: NSEvent.EventTypeMask, timeout: TimeInterval,
@@ -154,6 +154,11 @@ final class SidebarTests: XCTestCase {
         first.mouseDown(with: try event(.leftMouseDown, start))
         XCTAssertTrue(actions.moved === tabs[0])
         XCTAssertNil(actions.before)
+        XCTAssertNil(first.shadow)
+        XCTAssertEqual(first.layer?.shadowOpacity, 0)
+        XCTAssertEqual(first.layer?.backgroundColor,
+                       NSColor.selectedContentBackgroundColor.withAlphaComponent(0.25).cgColor,
+                       "a reused row must not keep the lifted drag background")
     }
 
     /// Dropping a dragged tab joins a group only inside it, or right under its expanded header.
@@ -178,8 +183,8 @@ final class SidebarTests: XCTestCase {
         check(5, nil, nil)     // the end
     }
 
-    /// A menu chosen after the sidebar rebuilt (an agent's title spinner does this constantly) must still act.
-    func testRowMenuWorksAfterRebuild() throws {
+    /// A menu stays actionable while an agent updates the title.
+    func testRowMenuWorksAfterMetadataUpdates() throws {
         final class Actions: TabGroupActions {
             var added: Workspace?
             var groups: [TabGroup] { [] }
@@ -275,11 +280,222 @@ final class SidebarTests: XCTestCase {
         XCTAssertFalse(hit is NSTextField, "the title label must not take the click")
         XCTAssertTrue(hit.acceptsFirstMouse(for: nil), "a click must select even when the window isn't key")
     }
+
+    private func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(descendants)
+    }
+
+    func testMetadataUpdatesPreserveRowsAndControls() throws {
+        let ws = Workspace()
+        ws.customTitle = "initial"
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 500))
+        sidebar.update([ws], selected: nil)
+        let row = try XCTUnwrap(descendants(sidebar).first { $0 is Row })
+        let controls = descendants(row)
+        for index in 0..<200 {
+            ws.customTitle = "title \(index)"
+            ws.ports = [8000 + index]
+            ws.notification = "notification \(index)"
+            sidebar.update([ws], selected: ws)
+        }
+        let current = descendants(row)
+        XCTAssertEqual(current.count, controls.count)
+        XCTAssertTrue(zip(current, controls).allSatisfy { $0 === $1 })
+        XCTAssertTrue(descendants(sidebar).contains { $0 === row })
+        XCTAssertEqual(row.accessibilityLabel(), "title 199")
+        XCTAssertEqual(row.toolTip, "notification 199")
+        let labels = current.compactMap { $0 as? NSTextField }.map(\.stringValue)
+        XCTAssertTrue(labels.contains("title 199"))
+        XCTAssertTrue(labels.contains(":8199"))
+        XCTAssertTrue(labels.contains("⌘1"))
+        XCTAssertEqual(row.layer?.backgroundColor,
+                       NSColor.selectedContentBackgroundColor.withAlphaComponent(0.25).cgColor)
+    }
+
+    func testMetadataUpdatesPreserveLiveRenameEditor() throws {
+        _ = NSApplication.shared
+        let ws = Workspace(); ws.customTitle = "initial"
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = sidebar
+        sidebar.update([ws], selected: nil)
+        sidebar.rename(ws)
+        let title = try XCTUnwrap(descendants(sidebar).compactMap { $0 as? NSTextField }
+            .first { $0.currentEditor() != nil })
+        let editor = try XCTUnwrap(title.currentEditor())
+        editor.string = "unfinished rename"
+        editor.selectedRange = NSRange(location: 4, length: 3)
+        for index in 0..<100 {
+            ws.customTitle = "background \(index)"
+            sidebar.update([ws], selected: ws)
+        }
+        XCTAssertTrue(title.currentEditor() === editor)
+        XCTAssertEqual(editor.string, "unfinished rename")
+        XCTAssertEqual(editor.selectedRange, NSRange(location: 4, length: 3))
+        window.makeFirstResponder(nil)
+        sidebar.update([ws], selected: ws)
+        XCTAssertEqual(ws.customTitle, "unfinished rename")
+        XCTAssertFalse(title.isEditable)
+        XCTAssertFalse(title.isSelectable)
+        XCTAssertFalse(title.drawsBackground)
+        XCTAssertEqual(title.stringValue, "unfinished rename")
+    }
+
+    func testRowMetadataUpdatesCwdLabelsAndAttentionInPlace() throws {
+        let ws = Workspace()
+        let group = TabGroup(name: "API", color: "Blue")
+        func model(_ title: String, cwd: String, waiting: Bool, unread: Bool = false,
+                   working: Bool = false, labels: [TabLabel] = []) -> Row.Model {
+            Row.Model(ws: ws, index: 2, title: title, cwd: cwd, ports: [8080],
+                      notification: "latest news", unread: unread, waiting: waiting, working: working,
+                      selected: false, labels: labels, group: group)
+        }
+        let row = Row(model("initial", cwd: "/demo/initial", waiting: false)) {}
+        let controls = descendants(row)
+        for index in 0..<100 {
+            row.update(model("spinner \(index)", cwd: "/demo/\(index)", waiting: true))
+        }
+        XCTAssertTrue(zip(descendants(row), controls).allSatisfy { $0 === $1 })
+        XCTAssertEqual(row.accessibilityLabel(), "spinner 99, needs input")
+        XCTAssertEqual(row.toolTip, "latest news")
+        XCTAssertTrue(descendants(row).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "/demo/99" })
+        let edge = try XCTUnwrap(row.subviews.first { $0.layer?.backgroundColor == Attention.waiting.color.cgColor })
+        XCTAssertFalse(edge.isHidden)
+        defer { Attention.reset() }
+        Attention.waiting.color = .systemPurple
+        row.refreshColors()
+        XCTAssertEqual(edge.layer?.backgroundColor, NSColor.systemPurple.cgColor)
+        row.update(model("done", cwd: "/demo/final", waiting: false, unread: true,
+                         labels: [TabLabel(name: "urgent", color: "Red")]))
+        XCTAssertEqual(edge.layer?.backgroundColor, Attention.news.color.cgColor)
+        XCTAssertNil(edge.layer?.animation(forKey: "pulse"))
+        XCTAssertEqual(row.accessibilityLabel(), "done")
+        let chip = try XCTUnwrap(descendants(row).compactMap { $0 as? NSTextField }.first { $0.stringValue == " urgent " })
+        row.update(model("done", cwd: "/demo/final", waiting: false,
+                         labels: [TabLabel(name: "client", color: "Green")]))
+        XCTAssertEqual(chip.stringValue, " client ")
+        XCTAssertTrue(edge.isHidden)
+        row.update(model("done", cwd: "/demo/final", waiting: false))
+        XCTAssertNil(chip.superview)
+        let bar = try XCTUnwrap(row.subviews.first { $0.layer?.backgroundColor == group.nsColor.cgColor })
+        group.color = "Green" // The same mutable group object must invalidate the row's color snapshot.
+        row.update(model("done", cwd: "/demo/final", waiting: false))
+        XCTAssertEqual(bar.layer?.backgroundColor, group.nsColor.cgColor)
+    }
+
+    func testStructuralUpdatesReuseSurvivingRowsAndReleaseClosedWorkspace() throws {
+        var closing: Workspace? = Workspace()
+        weak var released = closing
+        let a = Workspace(); a.customTitle = "a"
+        let b = Workspace(); b.customTitle = "b"
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 500))
+        autoreleasepool { sidebar.update([a, closing!, b], selected: a) }
+        let first = try XCTUnwrap(descendants(sidebar).first { $0.accessibilityLabel() == "a" })
+        let last = try XCTUnwrap(descendants(sidebar).first { $0.accessibilityLabel() == "b" })
+        let width = first.frame.width
+        autoreleasepool {
+            sidebar.update([b, a], selected: b)
+            closing = nil
+        }
+        autoreleasepool { CATransaction.flush() }
+        XCTAssertNil(released)
+        // NSStackView's arranged order, not its subview z-order, controls the visible row order.
+        let rows = descendants(sidebar).filter { $0 is Row }.sorted {
+            sidebar.convert($0.bounds, from: $0).midY > sidebar.convert($1.bounds, from: $1).midY
+        }
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows[0] === last)
+        XCTAssertTrue(rows[1] === first)
+        XCTAssertEqual(first.frame.width, width, accuracy: 0.01)
+        XCTAssertTrue(descendants(last).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "⌘1" })
+        let group = TabGroup(name: "API", color: "Blue")
+        a.group = group
+        sidebar.update([b, a], selected: b)
+        XCTAssertTrue(descendants(sidebar).contains { $0 === first })
+        group.collapsed = true
+        sidebar.update([b, a], selected: b)
+        XCTAssertEqual(sidebar.rowHeights.count, 2)
+        group.collapsed = false
+        sidebar.update([b, a], selected: b)
+        XCTAssertEqual(sidebar.rowHeights.count, 3)
+        XCTAssertTrue(descendants(sidebar).contains { $0 === last })
+    }
+
+    func testGroupMetadataAndCollapseReuseHeaderControls() throws {
+        let group = TabGroup(name: "API", color: "Blue", collapsed: true)
+        let a = Workspace(); a.group = group
+        let b = Workspace(); b.group = group
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 500))
+        sidebar.update([a], selected: nil)
+        let header = try XCTUnwrap(descendants(sidebar).first { $0.accessibilityLabel() == "Group API, 1 tabs, collapsed" })
+        let controls = descendants(header)
+        for index in 0..<100 {
+            group.name = "API \(index)"
+            group.color = index.isMultiple(of: 2) ? "Green" : "Blue"
+            sidebar.update([a, b], selected: nil)
+        }
+        XCTAssertTrue(zip(descendants(header), controls).allSatisfy { $0 === $1 })
+        XCTAssertEqual(header.accessibilityLabel(), "Group API 99, 2 tabs, collapsed")
+        XCTAssertTrue(descendants(header).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "2" && !$0.isHidden })
+        group.collapsed = false
+        sidebar.update([a, b], selected: nil)
+        XCTAssertTrue(descendants(sidebar).contains { $0 === header })
+        XCTAssertTrue(zip(descendants(header), controls).allSatisfy { $0 === $1 })
+        XCTAssertEqual(header.accessibilityLabel(), "Group API 99, 2 tabs, expanded")
+        XCTAssertTrue(descendants(header).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "2" && $0.isHidden })
+    }
+
+    func testCollapsedGroupAttentionUpdatesWithoutReplacingControls() throws {
+        let group = TabGroup(name: "API", color: "Blue", collapsed: true)
+        func model(waiting: Bool = false, unread: Bool = false, working: Bool = false) -> GroupHeader.Model {
+            GroupHeader.Model(group: group, count: 2, unread: unread, waiting: waiting, working: working)
+        }
+        let header = GroupHeader(model(), actions: nil)
+        let controls = descendants(header)
+        let badge = try XCTUnwrap(controls.compactMap { $0 as? NSTextField }.first { $0.stringValue == " needs input " })
+        XCTAssertTrue(badge.isHidden)
+        header.update(model(working: true), actions: nil)
+        let dot = try XCTUnwrap(header.subviews.flatMap(descendants).first {
+            $0.layer?.backgroundColor == Attention.working.color.cgColor
+        })
+        XCTAssertFalse(dot.isHidden)
+        header.update(model(unread: true, working: true), actions: nil)
+        XCTAssertEqual(dot.layer?.backgroundColor, Attention.news.color.cgColor)
+        header.update(model(waiting: true, unread: true, working: true), actions: nil)
+        XCTAssertFalse(badge.isHidden)
+        XCTAssertTrue(dot.isHidden)
+        XCTAssertEqual(badge.backgroundColor, Attention.waiting.color)
+        group.collapsed = false
+        header.update(model(waiting: true), actions: nil)
+        XCTAssertTrue(badge.isHidden)
+        XCTAssertTrue(dot.isHidden)
+        XCTAssertTrue(zip(descendants(header), controls).allSatisfy { $0 === $1 })
+    }
+
+    func testTitlebarStatusReusesLabelsAndSeparators() throws {
+        let container = ContainerView(sidebar: NSView(), content: NSView())
+        container.setInfo(["main", "clean", "ahead 1"])
+        let controls = descendants(container)
+        for index in 0..<100 { container.setInfo(["branch \(index)", "dirty", "ahead \(index)"]) }
+        XCTAssertTrue(zip(descendants(container), controls).allSatisfy { $0 === $1 })
+        let labels = descendants(container).compactMap { $0 as? NSTextField }
+        XCTAssertEqual(labels.map(\.stringValue), ["branch 99", "dirty", "ahead 99"])
+        container.setInfo(["main"])
+        XCTAssertTrue(descendants(container).contains { $0 === labels[0] })
+        XCTAssertNil(labels[1].superview)
+        XCTAssertNil(labels[2].superview)
+        container.setInfo(["main", "clean"])
+        XCTAssertTrue(descendants(container).contains { $0 === labels[0] })
+        XCTAssertEqual(descendants(container).compactMap { $0 as? NSBox }.count, 1)
+        container.setInfo([])
+        XCTAssertTrue(descendants(container).compactMap { $0 as? NSTextField }.isEmpty)
+        XCTAssertTrue(descendants(container).compactMap { $0 as? NSBox }.isEmpty)
+    }
 }
 
 extension SidebarTests {
-    /// Agent spinners rebuild the rows several times a second; a click right after a rebuild must still land on a row.
-    func testRowsTakeClicksRightAfterRebuild() throws {
+    /// A title update must leave the row clickable without waiting for a layout pass.
+    func testRowsTakeClicksRightAfterTitleUpdate() throws {
         let ws = Workspace(); ws.customTitle = "one"
         let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 260, height: 300))
         let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -288,7 +504,7 @@ extension SidebarTests {
         sidebar.layoutSubtreeIfNeeded()
         let p = NSPoint(x: 100, y: sidebar.bounds.height - 60) // inside the first row
         XCTAssertNotNil(sidebar.hitTest(p).flatMap { $0.acceptsFirstMouse(for: nil) ? $0 : nil })
-        ws.customTitle = "two" // a title change rebuilds the row; no layout pass runs before the click
+        ws.customTitle = "two" // no layout pass runs before the click
         sidebar.update([ws], selected: nil)
         let hit = try XCTUnwrap(sidebar.hitTest(p))
         XCTAssertTrue(hit.acceptsFirstMouse(for: nil), "the click fell through to \(type(of: hit))")

@@ -4,7 +4,7 @@ import XCTest
 
 final class KeybindingTests: XCTestCase {
     func testNumberedTabShortcuts() throws {
-        XCTAssertEqual(ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv), GHOSTTY_SUCCESS)
+        XCTAssertEqual(initializeGhosttyForTesting(), GHOSTTY_SUCCESS)
         let config = try XCTUnwrap(ghostty_config_new())
         defer { ghostty_config_free(config) }
         ghostty_config_load_file(config, Ghostty.defaultConfigPath)

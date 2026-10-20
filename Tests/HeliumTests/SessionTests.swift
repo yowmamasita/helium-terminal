@@ -46,7 +46,7 @@ final class SessionTests: XCTestCase {
                        ["--model", "gpt-5.5", "--sandbox", "read-only"])
         XCTAssertEqual(AgentSession.resumableFlags(.codex,
                                                    ["--image", "one.png", "two.png", "--", "describe"]),
-                       ["--image", "one.png", "two.png"])
+                       [])
         let s = AgentSession(kind: .codex, sessionID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", cwd: nil, flags: ["--yolo"])
         XCTAssertEqual(s.resumeCommand, "codex resume 0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b --yolo")
     }

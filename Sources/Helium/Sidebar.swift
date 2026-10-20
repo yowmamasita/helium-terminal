@@ -5,11 +5,11 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     var onSelect: ((Workspace) -> Void)?
 
     private let stack = NSStackView()
-    private var lastSignature = ""
     // Two separate freezes, so one ending can't unfreeze the other.
     private var renaming = false
     private var popoverOpen = false
     private var dragging = false
+    private var reduceMotionObserver: NSObjectProtocol?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -54,6 +54,9 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         NotificationCenter.default.addObserver(forName: .heliumUpdaterChanged, object: nil, queue: .main) {
             [weak self] _ in self?.updaterChanged()
         }
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.rebuildColors() }
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: topAnchor, constant: 38),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -69,6 +72,10 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    deinit {
+        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+    }
 
     /// Heights of the tab rows, top to bottom (for tests).
     var rowHeights: [CGFloat] { stack.arrangedSubviews.map(\.frame.height) }
@@ -90,68 +97,99 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     @objc private func relaunchToUpdate() { Updater.shared.relaunch() }
 
     func update(_ workspaces: [Workspace], selected: Workspace?) {
-        let rows = workspaces.enumerated().map { i, ws in
-            Row.Model(ws: ws, index: i + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
-                      ports: ws.ports, notification: ws.notification,
-                      unread: ws.unread, waiting: ws.waiting, working: ws.working, selected: ws === selected,
-                      labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
+        // Keep the field editor, popover anchor and lifted row intact until their interaction ends.
+        guard !renaming, !popoverOpen, !dragging else { return }
+        let models = workspaces.enumerated().map { index, ws in
+            Row.Model(ws: ws, index: index + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
+                ports: ws.ports, notification: ws.notification, unread: ws.unread, waiting: ws.waiting,
+                working: ws.working, selected: ws === selected,
+                labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
         }
-        // A group header goes before the first tab of each group; tabs of collapsed groups are hidden.
-        var items: [(sig: String, kind: Item, make: () -> NSView)] = []
+        var summaries: [String: GroupHeader.Model] = [:]
+        for model in models {
+            guard let group = model.group else { continue }
+            let previous = summaries[group.id]
+            summaries[group.id] = GroupHeader.Model(group: group, count: (previous?.count ?? 0) + 1,
+                unread: (previous?.unread ?? false) || model.unread,
+                waiting: (previous?.waiting ?? false) || model.waiting,
+                working: (previous?.working ?? false) || model.working)
+        }
+        var items: [Item] = []
+        var views: [NSView] = []
+        var liveRows = Set<ObjectIdentifier>()
+        var liveHeaders = Set<String>()
         var lastGroup: TabGroup?
-        for model in rows {
-            if let g = model.ws.group, g !== lastGroup {
-                let members = rows.filter { $0.ws.group === g }
-                let header = GroupHeader.Model(group: g, count: members.count,
-                                               unread: members.contains { $0.unread }, waiting: members.contains { $0.waiting },
-                                               working: members.contains { $0.working })
-                items.append((header.signature, .header(g, first: model.ws), { [weak self] in
-                    let h = GroupHeader(header, actions: self?.actions)
-                    h.sidebar = self
-                    self?.headers[g.id] = h
-                    return h
-                }))
+        for model in models {
+            let ws = model.ws
+            if let group = ws.group, group !== lastGroup, let model = summaries[group.id] {
+                let header = headers[group.id] ?? GroupHeader(model, actions: actions)
+                header.sidebar = self
+                header.update(model, actions: actions)
+                headers[group.id] = header
+                liveHeaders.insert(group.id)
+                items.append(.header(group, first: ws))
+                views.append(header)
             }
-            lastGroup = model.ws.group
-            if model.ws.group?.collapsed == true { continue }
-            items.append((model.signature, .row(model.ws), { [weak self] in
-                let row = Row(model) { [weak self] in self?.onSelect?(model.ws) }
-                row.actions = self?.actions
-                row.sidebar = self
-                row.onEditing = { [weak self] on in
-                    self?.renaming = on
-                    // Rebuild on the next turn: the edit may be ending because another field is taking focus.
-                    if !on { self?.lastSignature = ""; DispatchQueue.main.async { model.ws.onChange?() } }
+            lastGroup = ws.group
+            if ws.group?.collapsed == true { continue }
+            let key = ObjectIdentifier(ws)
+            let row: Row
+            if let existing = rowViews[key] {
+                row = existing
+                row.update(model)
+            } else {
+                row = Row(model) { [weak self, weak ws] in
+                    if let ws { self?.onSelect?(ws) }
                 }
-                self?.rowViews[ObjectIdentifier(model.ws)] = row
-                return row
-            }))
+                row.onEditing = { [weak self, weak ws] on in
+                    self?.renaming = on
+                    // Another field may be taking focus as editing ends.
+                    if !on { DispatchQueue.main.async { ws?.onChange?() } }
+                }
+                rowViews[key] = row
+            }
+            row.actions = actions
+            row.sidebar = self
+            liveRows.insert(key)
+            items.append(.row(ws))
+            views.append(row)
         }
-        // The poll timer calls this every few seconds; skip rebuilding when nothing changed.
-        let sig = items.map(\.sig).joined(separator: "\u{1}")
-        // Rebuilding would throw away a title being edited; the end of editing triggers an update.
-        guard sig != lastSignature, !renaming, !popoverOpen, !dragging else { return }
-        lastSignature = sig
-        kinds = items.map(\.kind)
-
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        headers = [:]
-        rowViews = [:]
-        for item in items {
-            let v = item.make()
-            stack.addArrangedSubview(v)
-            v.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        kinds = items
+        if rowViews.count != liveRows.count { rowViews = rowViews.filter { liveRows.contains($0.key) } }
+        if headers.count != liveHeaders.count { headers = headers.filter { liveHeaders.contains($0.key) } }
+        let current = stack.arrangedSubviews
+        if current.count != views.count || zip(current, views).contains(where: { $0 !== $1 }) {
+            let liveViews = Set(views.map(ObjectIdentifier.init))
+            for view in current where !liveViews.contains(ObjectIdentifier(view)) {
+                view.removeFromSuperview()
+            }
+            widths = widths.filter { liveViews.contains($0.key) }
+            for (index, view) in views.enumerated() {
+                let key = ObjectIdentifier(view)
+                if view.superview !== stack {
+                    view.translatesAutoresizingMaskIntoConstraints = false
+                    stack.insertArrangedSubview(view, at: index)
+                    let width = widths[key] ?? view.widthAnchor.constraint(equalTo: stack.widthAnchor)
+                    widths[key] = width
+                    width.isActive = true
+                } else if stack.arrangedSubviews[index] !== view {
+                    // Removing just the arranged membership preserves the view and its width constraint.
+                    stack.removeArrangedSubview(view)
+                    stack.insertArrangedSubview(view, at: index)
+                }
+            }
+            // A click queued behind a structural change must already have a target.
+            layoutSubtreeIfNeeded()
         }
-        // New rows have no size until layout, and a click queued behind a title spinner's rebuild would miss them.
-        layoutSubtreeIfNeeded()
     }
 
     weak var actions: TabGroupActions?
     private var kinds: [Item] = []
     private var headers: [String: GroupHeader] = [:]
     private var rowViews: [ObjectIdentifier: Row] = [:]
+    private var widths: [ObjectIdentifier: NSLayoutConstraint] = [:]
 
-    /// Starts renaming a tab on its current row; menus call this because their own row may have been rebuilt.
+    /// Starts renaming on the current row, even if a structural change replaced the menu's original row.
     func rename(_ ws: Workspace) {
         rowViews[ObjectIdentifier(ws)]?.beginEditing()
     }
@@ -161,10 +199,10 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         rebuildColors()
     }
 
-    /// Row colors are resolved when a row is built; rebuild them for a new appearance or attention colors.
+    /// Resolve layer-backed colors again without replacing controls.
     func rebuildColors() {
-        lastSignature = ""
-        actions?.groupsChanged()
+        rowViews.values.forEach { $0.refreshColors() }
+        headers.values.forEach { $0.refresh() }
     }
 
     /// Opens the "Name this group" popover on a group's header; the sidebar holds still while it's open.
@@ -182,7 +220,6 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         popoverOpen = false
-        lastSignature = ""
         actions?.groupsChanged()
     }
 
@@ -195,8 +232,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     }
 
     /// Drags `ws`'s row like an iTerm2 tab: the row lifts and follows the pointer while the others slide apart to
-    /// open a gap where it will land. A tracking loop rather than the row's own mouse events, because selecting the
-    /// tab on mouse down rebuilds the sidebar and takes the pressed row out of the window.
+    /// open a gap where it will land. Periodic tracking events keep autoscroll moving even on a still pointer.
     func trackDrag(_ ws: Workspace, from down: NSEvent) {
         guard let window, let doc = stack.superview else { return }
         let start = down.locationInWindow
@@ -253,7 +289,9 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         row.removeFromSuperview()
         gap.removeFromSuperview()
         dragging = false
-        lastSignature = "" // the row was taken out of the stack; rebuild even if the order stays
+        row.shadow = nil
+        row.layer?.shadowOpacity = 0
+        (row as? Row)?.refreshColors()
         var items = kinds
         items.removeAll { if case .row(let w) = $0 { w === ws } else { false } }
         let t = Self.dropTarget(items, slot: slot)
@@ -283,15 +321,14 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     }
 }
 
-/// Menu items hold their target weakly, and the sidebar rebuilds whenever a title changes (an agent's spinner
-/// does this constantly), so the row or header that opened a menu is kept alive until the next menu opens.
+/// Menu items hold their target weakly. Keep the last menu's owner alive even if its tab or group closes.
 private var menuOwner: NSView?
 
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-private final class Row: NSView, NSTextFieldDelegate {
+final class Row: NSView, NSTextFieldDelegate {
     struct Model {
         let ws: Workspace
         let index: Int
@@ -306,15 +343,40 @@ private final class Row: NSView, NSTextFieldDelegate {
         let labels: [TabLabel]
         let group: TabGroup?
 
-        var signature: String {
-            "\(ws.id)|\(index)|\(title)|\(cwd ?? "")|\(ports)|\(notification ?? "")|\(unread)|\(waiting)|\(working)|\(selected)|"
-                + labels.map { $0.name + ":" + $0.color }.joined(separator: ",") + "|" + (group.map { $0.id + $0.color } ?? "")
-        }
     }
 
     private let onClick: () -> Void
     private let ws: Workspace
     private let titleField = NSTextField(labelWithString: "")
+    private let cwdField = Row.label("", .systemFont(ofSize: 11), .secondaryLabelColor, middle: true)
+    private let portsField = Row.label("", .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen)
+    private let shortcut = Row.label("", .systemFont(ofSize: 10), .tertiaryLabelColor)
+    private let head = NSStackView()
+    private let bar = NSView()
+    private let edge = NSView()
+    private var chips: [NSTextField] = []
+    private var model: Model
+    private var pulseState = -1
+    private struct ColorState: Equatable {
+        let selected: Bool
+        let waiting: Bool
+        let unread: Bool
+        let working: Bool
+        let group: ObjectIdentifier?
+        let groupColor: String?
+        let labels: [TabLabel]
+
+        init(_ model: Model) {
+            selected = model.selected
+            waiting = model.waiting
+            unread = model.unread
+            working = model.working
+            group = model.group.map(ObjectIdentifier.init)
+            groupColor = model.group?.color
+            labels = model.labels
+        }
+    }
+    private var colorState: ColorState?
     private var cancelled = false
     var onEditing: ((Bool) -> Void)?
     weak var actions: TabGroupActions?
@@ -323,32 +385,28 @@ private final class Row: NSView, NSTextFieldDelegate {
     init(_ m: Model, onClick: @escaping () -> Void) {
         self.onClick = onClick
         self.ws = m.ws
+        self.model = m
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 6
-        if m.selected { layer?.backgroundColor = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.25).cgColor }
 
         let title = titleField
-        title.stringValue = m.title
         title.font = .systemFont(ofSize: 13, weight: m.unread ? .bold : .medium)
         title.textColor = .labelColor
         title.lineBreakMode = .byTruncatingTail
         title.delegate = self
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let shortcut = Self.label(m.index <= 10 ? "⌘\(m.index % 10)" : "", .systemFont(ofSize: 10), .tertiaryLabelColor)
-        let head = NSStackView(views: [title] + m.labels.map(Self.chip) + [NSView(), shortcut])
+        head.addArrangedSubview(title)
+        head.addArrangedSubview(NSView())
+        head.addArrangedSubview(shortcut)
         head.spacing = 6
 
         // Always two lines so every row is the same height; the branch is in the titlebar strip and
         // the notification text is the tooltip.
-        let small = NSFont.systemFont(ofSize: 11)
-        let ports = Self.label(m.ports.map { ":\($0)" }.joined(separator: " "),
-                               .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen)
-        ports.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        let second = NSStackView(views: [Self.label(m.cwd ?? "", small, .secondaryLabelColor, middle: true), ports])
+        portsField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let second = NSStackView(views: [cwdField, portsField])
         second.spacing = 6
         let lines: [NSView] = [head, second]
-        toolTip = m.notification
 
         let v = NSStackView(views: lines)
         v.orientation = .vertical
@@ -363,51 +421,83 @@ private final class Row: NSView, NSTextFieldDelegate {
             v.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             head.widthAnchor.constraint(equalTo: v.widthAnchor),
         ])
-        if let g = m.group {
-            // Grouped tabs carry a bar in the group's color, like Chrome's group outline.
-            let bar = NSView()
-            bar.wantsLayer = true
-            bar.layer?.backgroundColor = g.nsColor.cgColor
-            bar.layer?.cornerRadius = 1.5
-            bar.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(bar)
+        for (indicator, leading) in [(bar, true), (edge, false)] {
+            indicator.wantsLayer = true
+            indicator.layer?.cornerRadius = 1.5
+            indicator.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(indicator)
             NSLayoutConstraint.activate([
-                bar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
-                bar.widthAnchor.constraint(equalToConstant: 3),
-                bar.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-                bar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+                leading ? indicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1)
+                    : indicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+                indicator.widthAnchor.constraint(equalToConstant: 3),
+                indicator.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+                indicator.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             ])
-        }
-        if m.waiting || m.unread || m.working {
-            // Orange: an agent is blocked on the user. Green: news. Blue: an agent is working. Shown as the row's right edge.
-            let edge = NSView()
-            edge.wantsLayer = true
-            edge.layer?.backgroundColor = (m.waiting ? Attention.waiting : m.unread ? .news : .working).color.cgColor
-            edge.layer?.cornerRadius = 1.5
-            edge.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(edge)
-            NSLayoutConstraint.activate([
-                edge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
-                edge.widthAnchor.constraint(equalToConstant: 3),
-                edge.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-                edge.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            ])
-            // Working breathes slowly, blocked blinks faster; green news stays still.
-            if (m.waiting || m.working), !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                let pulse = CABasicAnimation(keyPath: "opacity")
-                pulse.fromValue = 1
-                pulse.toValue = m.waiting ? 0.15 : 0.3
-                pulse.duration = m.waiting ? 0.5 : 0.9
-                pulse.autoreverses = true
-                pulse.repeatCount = .infinity
-                pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                // Rows are rebuilt on every spinner frame of the title; a clock-based phase keeps the pulse smooth.
-                pulse.timeOffset = CACurrentMediaTime().truncatingRemainder(dividingBy: pulse.duration * 2)
-                edge.layer?.add(pulse, forKey: "pulse")
-            }
         }
         setAccessibilityRole(.button)
-        setAccessibilityLabel(m.waiting ? "\(m.title), needs input" : m.title)
+        update(m)
+    }
+
+    func update(_ m: Model) {
+        let previous = model
+        model = m
+        if titleField.stringValue != m.title { titleField.stringValue = m.title }
+        if titleField.font == nil || previous.unread != m.unread {
+            titleField.font = .systemFont(ofSize: 13, weight: m.unread ? .bold : .medium)
+        }
+        if cwdField.stringValue != (m.cwd ?? "") { cwdField.stringValue = m.cwd ?? "" }
+        if previous.ports != m.ports || portsField.stringValue.isEmpty {
+            portsField.stringValue = m.ports.map { ":\($0)" }.joined(separator: " ")
+        }
+        let key = m.index <= 10 ? "⌘\(m.index % 10)" : ""
+        if shortcut.stringValue != key { shortcut.stringValue = key }
+        if toolTip != m.notification { toolTip = m.notification }
+        while chips.count > m.labels.count { chips.removeLast().removeFromSuperview() }
+        for (index, label) in m.labels.enumerated() {
+            if index == chips.count {
+                let chip = Self.chip(label)
+                chips.append(chip)
+                head.insertArrangedSubview(chip, at: index + 1)
+            }
+            let chip = chips[index]
+            let text = " \(label.name) "
+            if chip.stringValue != text { chip.stringValue = text }
+        }
+        let accessibility = m.waiting ? "\(m.title), needs input" : m.title
+        if accessibilityLabel() != accessibility { setAccessibilityLabel(accessibility) }
+        if colorState != ColorState(m) { refreshColors() }
+    }
+
+    func refreshColors() {
+        let m = model
+        colorState = ColorState(m)
+        let background = m.selected ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.25).cgColor : nil
+        if layer?.backgroundColor != background { layer?.backgroundColor = background }
+        let ungrouped = m.group == nil
+        if bar.isHidden != ungrouped { bar.isHidden = ungrouped }
+        let groupColor = m.group?.nsColor.cgColor
+        if bar.layer?.backgroundColor != groupColor { bar.layer?.backgroundColor = groupColor }
+        let inactive = !m.waiting && !m.unread && !m.working
+        if edge.isHidden != inactive { edge.isHidden = inactive }
+        let attentionColor = (m.waiting ? Attention.waiting : m.unread ? .news : .working).color.cgColor
+        if edge.layer?.backgroundColor != attentionColor { edge.layer?.backgroundColor = attentionColor }
+        for (chip, label) in zip(chips, m.labels) {
+            if chip.textColor != label.textColor { chip.textColor = label.textColor }
+            if chip.backgroundColor != label.nsColor { chip.backgroundColor = label.nsColor }
+        }
+        let state = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : m.waiting ? 1 : m.working ? 2 : 0
+        guard state != pulseState else { return }
+        pulseState = state
+        edge.layer?.removeAnimation(forKey: "pulse")
+        guard state != 0 else { return }
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 1
+        pulse.toValue = state == 1 ? 0.15 : 0.3
+        pulse.duration = state == 1 ? 0.5 : 0.9
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        edge.layer?.add(pulse, forKey: "pulse")
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -458,6 +548,9 @@ private final class Row: NSView, NSTextFieldDelegate {
             let t = titleField.stringValue.trimmingCharacters(in: .whitespaces)
             ws.customTitle = t.isEmpty ? nil : t // empty goes back to the automatic title
         }
+        titleField.isEditable = false
+        titleField.isSelectable = false
+        titleField.drawsBackground = false
         onEditing?(false)
         // Back to the terminal only on Return or Esc; a click elsewhere already chose where focus goes.
         let movement = obj.userInfo?["NSTextMovement"] as? Int
@@ -576,7 +669,7 @@ private final class Row: NSView, NSTextFieldDelegate {
         }
     }
 
-    private static func chip(_ l: TabLabel) -> NSView {
+    private static func chip(_ l: TabLabel) -> NSTextField {
         let t = NSTextField(labelWithString: " \(l.name) ")
         t.font = .systemFont(ofSize: 10, weight: .semibold)
         t.textColor = l.textColor
@@ -616,7 +709,7 @@ protocol TabGroupActions: AnyObject {
 }
 
 /// A group's header: chevron, colored name pill, and when collapsed the tab count and any attention signal.
-private final class GroupHeader: NSView {
+final class GroupHeader: NSView {
     struct Model {
         let group: TabGroup
         let count: Int
@@ -624,21 +717,43 @@ private final class GroupHeader: NSView {
         let waiting: Bool
         let working: Bool
 
-        var signature: String {
-            "group|\(group.id)|\(group.name)|\(group.color)|\(group.collapsed)|\(count)|\(unread)|\(waiting)|\(working)"
-        }
     }
 
-    private let model: Model
+    private var model: Model
     private weak var actions: TabGroupActions?
     private let pill = NSTextField(labelWithString: "")
+    private let chevron = NSImageView()
+    private let count = NSTextField(labelWithString: "")
+    private let badge = NSTextField(labelWithString: " needs input ")
+    private let dot = NSView()
+    private var collapsed: Bool?
+    private struct State: Equatable {
+        let group: ObjectIdentifier
+        let name: String
+        let color: String
+        let collapsed: Bool
+        let count: Int
+        let unread: Bool
+        let waiting: Bool
+        let working: Bool
+
+        init(_ model: Model) {
+            group = ObjectIdentifier(model.group)
+            name = model.group.name
+            color = model.group.color
+            collapsed = model.group.collapsed
+            count = model.count
+            unread = model.unread
+            waiting = model.waiting
+            working = model.working
+        }
+    }
+    private var state: State?
 
     init(_ m: Model, actions: TabGroupActions?) {
         model = m
         self.actions = actions
         super.init(frame: .zero)
-        let chevron = NSImageView(image: NSImage(systemSymbolName: m.group.collapsed ? "chevron.right" : "chevron.down",
-                                                 accessibilityDescription: nil) ?? NSImage())
         chevron.contentTintColor = .secondaryLabelColor
         chevron.symbolConfiguration = .init(pointSize: 10, weight: .semibold)
         pill.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -648,36 +763,20 @@ private final class GroupHeader: NSView {
         pill.layer?.masksToBounds = true
         pill.lineBreakMode = .byTruncatingTail
         pill.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        refresh()
 
-        var views: [NSView] = [chevron, pill]
-        if m.group.collapsed {
-            let count = NSTextField(labelWithString: "\(m.count)")
-            count.font = .systemFont(ofSize: 11)
-            count.textColor = .secondaryLabelColor
-            views.append(count)
-        }
-        views.append(NSView())
-        if m.group.collapsed && m.waiting {
-            let badge = NSTextField(labelWithString: " needs input ")
-            badge.font = .systemFont(ofSize: 10, weight: .semibold)
-            badge.textColor = .white
-            badge.drawsBackground = true
-            badge.backgroundColor = Attention.waiting.color
-            badge.wantsLayer = true
-            badge.layer?.cornerRadius = 4
-            badge.layer?.masksToBounds = true
-            views.append(badge)
-        } else if m.group.collapsed && (m.unread || m.working) {
-            let dot = NSView()
-            dot.wantsLayer = true
-            dot.layer?.cornerRadius = 4
-            dot.layer?.backgroundColor = (m.unread ? Attention.news : .working).color.cgColor
-            dot.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
-            views.append(dot)
-        }
-        let h = NSStackView(views: views)
+        count.font = .systemFont(ofSize: 11)
+        count.textColor = .secondaryLabelColor
+        badge.font = .systemFont(ofSize: 10, weight: .semibold)
+        badge.textColor = .white
+        badge.drawsBackground = true
+        badge.wantsLayer = true
+        badge.layer?.cornerRadius = 4
+        badge.layer?.masksToBounds = true
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = 4
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 8), dot.heightAnchor.constraint(equalToConstant: 8)])
+        let h = NSStackView(views: [chevron, pill, count, NSView(), badge, dot])
         h.spacing = 6
         h.translatesAutoresizingMaskIntoConstraints = false
         addSubview(h)
@@ -688,17 +787,42 @@ private final class GroupHeader: NSView {
             h.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
         setAccessibilityRole(.button)
-        setAccessibilityLabel("Group \(m.group.displayName), \(m.count) tabs, \(m.group.collapsed ? "collapsed" : "expanded")")
+        refresh()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    func update(_ model: Model, actions: TabGroupActions?) {
+        self.model = model
+        self.actions = actions
+        if state != State(model) { refresh() }
+    }
+
     /// Re-reads the group's name and color (live while the editor popover is open).
     func refresh() {
+        state = State(model)
         let g = model.group
-        pill.stringValue = " \(g.displayName) "
-        pill.backgroundColor = g.nsColor
-        pill.textColor = g.textColor
+        let text = " \(g.displayName) "
+        if pill.stringValue != text { pill.stringValue = text }
+        if pill.backgroundColor != g.nsColor { pill.backgroundColor = g.nsColor }
+        if pill.textColor != g.textColor { pill.textColor = g.textColor }
+        if collapsed != g.collapsed {
+            collapsed = g.collapsed
+            chevron.image = NSImage(systemSymbolName: g.collapsed ? "chevron.right" : "chevron.down",
+                                    accessibilityDescription: nil)
+        }
+        let countText = "\(model.count)"
+        if count.stringValue != countText { count.stringValue = countText }
+        if count.isHidden == g.collapsed { count.isHidden = !g.collapsed }
+        let hideBadge = !g.collapsed || !model.waiting
+        if badge.isHidden != hideBadge { badge.isHidden = hideBadge }
+        if badge.backgroundColor != Attention.waiting.color { badge.backgroundColor = Attention.waiting.color }
+        let hideDot = !g.collapsed || model.waiting || (!model.unread && !model.working)
+        if dot.isHidden != hideDot { dot.isHidden = hideDot }
+        let dotColor = (model.unread ? Attention.news : .working).color.cgColor
+        if dot.layer?.backgroundColor != dotColor { dot.layer?.backgroundColor = dotColor }
+        let accessibility = "Group \(g.displayName), \(model.count) tabs, \(g.collapsed ? "collapsed" : "expanded")"
+        if accessibilityLabel() != accessibility { setAccessibilityLabel(accessibility) }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }

@@ -1,6 +1,29 @@
 import AppKit
 import GhosttyKit
 
+/// Owns a native request until one response consumes it. Queued UI completions may outlive cancellation.
+final class ClipboardConfirmation {
+    private var completion: ((Bool) -> Void)?
+    var dismiss: (() -> Void)?
+
+    init(completion: @escaping (Bool) -> Void) { self.completion = completion }
+
+    var isPending: Bool { completion != nil }
+
+    func resolve(allowed: Bool) {
+        guard let completion else { return }
+        self.completion = nil // consume before calling native code, which can reenter the app
+        dismiss = nil
+        completion(allowed)
+    }
+
+    func cancel() {
+        let dismiss = self.dismiss
+        resolve(allowed: false)
+        dismiss?()
+    }
+}
+
 /// Owns the single libghostty app and routes its callbacks to the window.
 /// libghostty takes C function pointers, which can't capture context, so the
 /// callbacks go through `Ghostty.shared`.
@@ -118,7 +141,13 @@ final class Ghostty {
             window.equalize(containing: view)
         case GHOSTTY_ACTION_SET_TITLE:
             guard let view, let t = a.set_title.title else { return false }
-            view.title = String(cString: t)
+            let raw = String(cString: t)
+            let previousPrefix = view.codexPrefix
+            view.codexPrefix = CodexSessions.prefix(in: raw)
+            view.title = CodexSessions.displayTitle(raw, prefix: view.codexPrefix)
+            if view.codexPrefix != previousPrefix {
+                DispatchQueue.main.async { [weak window] in window?.refreshAgents() }
+            }
             window.metadataChangedSoon()
         case GHOSTTY_ACTION_PWD:
             guard let view, let p = a.pwd.pwd else { return false }
@@ -173,11 +202,11 @@ final class Ghostty {
         return GHOSTTY_CLIPBOARD_READ_STARTED
     }
 
-    private static func confirmClipboard(
+    static func confirmClipboard(
         _ ud: UnsafeMutableRawPointer?, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
         _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e
     ) {
-        guard let view = SurfaceView.from(ud), view.surface != nil else { return }
+        guard let view = SurfaceView.from(ud), let surface = view.surface else { return }
         // Copy the borrowed text now; the alert runs after this callback returns.
         var text: String?
         if let c = confirm?.pointee, let contents = c.contents {
@@ -185,20 +214,34 @@ final class Ghostty {
                 text = String(data: Data(bytes: contents[i].data, count: contents[i].len), encoding: .utf8)
             }
         }
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = request == GHOSTTY_CLIPBOARD_REQUEST_PASTE
-                ? "Paste text that may run commands?" : "A program wants to read your clipboard."
-            alert.informativeText = String((text ?? "").prefix(500))
-            alert.addButton(withTitle: "Allow")
-            alert.addButton(withTitle: "Deny")
-            let allowed = alert.runModal() == .alertFirstButtonReturn
-            // The pane may have closed (and its surface been freed) while the alert was up.
-            guard let surface = view.surface else { return }
+        let preview = String((text ?? "").prefix(500))
+        let confirmation = ClipboardConfirmation { allowed in
             if allowed {
                 complete(surface, text: text, available: false, state: state, confirmed: true)
             } else {
                 ghostty_surface_deny_clipboard_request(surface, state)
+            }
+        }
+        view.clipboardConfirmations.append(confirmation)
+        DispatchQueue.main.async { [weak view] in
+            guard let view, confirmation.isPending else { return }
+            guard let window = view.window else {
+                confirmation.cancel()
+                view.clipboardConfirmations.removeAll { $0 === confirmation }
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = request == GHOSTTY_CLIPBOARD_REQUEST_PASTE
+                ? "Paste text that may run commands?" : "A program wants to read your clipboard."
+            alert.informativeText = preview
+            alert.addButton(withTitle: "Allow")
+            alert.addButton(withTitle: "Deny")
+            confirmation.dismiss = { [weak window, weak alert] in
+                if let alert { window?.endSheet(alert.window, returnCode: .abort) }
+            }
+            alert.beginSheetModal(for: window) { [weak view] response in
+                confirmation.resolve(allowed: response == .alertFirstButtonReturn)
+                view?.clipboardConfirmations.removeAll { $0 === confirmation }
             }
         }
     }

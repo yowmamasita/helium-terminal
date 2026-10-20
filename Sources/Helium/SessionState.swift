@@ -108,6 +108,10 @@ extension MainWindowController {
             let leaf = second.firstPane
             let new = PaneView(surface: SurfaceView(app: app, workingDirectory: leaf.agent?.cwd ?? leaf.cwd,
                                                     initialInput: Self.resumeInput(leaf.agent)))
+            if let agent = leaf.agent, AgentSession.resumeEnabled(agent.kind) {
+                new.agent = agent
+                new.awaitingAgentStart = true
+            }
             ws.split(pane, with: new, vertical ? GHOSTTY_SPLIT_DIRECTION_RIGHT : GHOSTTY_SPLIT_DIRECTION_DOWN)
             if let split = new.superview as? NSSplitView { ratios.append((split, Self.boundedRatio(ratio))) }
             build(first, in: pane, ws)
@@ -119,6 +123,10 @@ extension MainWindowController {
             let leaf = tab.firstPane
             guard let ws = newWorkspace(cwd: leaf.agent?.cwd ?? leaf.cwd, initialInput: Self.resumeInput(leaf.agent)),
                   let pane = ws.panes.first else { continue }
+            if let agent = leaf.agent, AgentSession.resumeEnabled(agent.kind) {
+                pane.agent = agent
+                pane.awaitingAgentStart = true
+            }
             if i == state.selected { selectedTab = ws } // by saved index: a tab that failed to open shifts the rest
             build(tab, in: pane, ws)
             ws.customTitle = state.titles?[safe: i] ?? nil

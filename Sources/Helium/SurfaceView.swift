@@ -10,8 +10,11 @@ final class SurfaceView: NSView, NSTextInputClient {
     private static var nextID = 1
 
     let id: Int
+    let agentToken = UUID().uuidString
+    private(set) var agentStateDirectory: URL?
     private(set) var surface: ghostty_surface_t?
     var title = ""
+    var codexPrefix: String?
     var pwd: String?
     weak var pane: PaneView?
 
@@ -20,6 +23,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     private var lastPerformKeyEvent: TimeInterval?
     private var cursor: NSCursor = .iBeam
     private var trackingArea: NSTrackingArea?
+    var clipboardConfirmations: [ClipboardConfirmation] = []
 
     static func from(_ ud: UnsafeMutableRawPointer?) -> SurfaceView? {
         ud.map { Unmanaged<SurfaceView>.fromOpaque($0).takeUnretainedValue() }
@@ -40,7 +44,11 @@ final class SurfaceView: NSView, NSTextInputClient {
         cfg.context = GHOSTTY_SURFACE_CONTEXT_TAB
 
         // HELIUM_PANE lets `helium notify` inside this pane target itself.
-        let env: [(String, String)] = [("HELIUM_PANE", "\(id)"), ("HELIUM_SOCKET", SocketServer.path)]
+        agentStateDirectory = AgentIntegrations.makePaneDirectory(id)
+        var env: [(String, String)] = [("HELIUM_PANE", "\(id)"), ("HELIUM_SOCKET", SocketServer.path),
+                                      ("HELIUM_PANE_TOKEN", agentToken),
+                                      ("HELIUM_AGENT_INTEGRATION", AgentIntegrations.resourceDirectory.absoluteString)]
+        if let agentStateDirectory { env.append(("HELIUM_AGENT_STATE_DIR", agentStateDirectory.path)) }
         let cStrings = env.flatMap { [strdup($0.0)!, strdup($0.1)!] }
         defer { cStrings.forEach { free($0) } }
         var vars = (0..<env.count).map { ghostty_env_var_s(key: cStrings[$0 * 2], value: cStrings[$0 * 2 + 1]) }
@@ -64,9 +72,19 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    deinit {
+        if let agentStateDirectory { try? FileManager.default.removeItem(at: agentStateDirectory) }
+    }
+
     /// Frees the libghostty surface. Called once when the pane closes.
     func destroy() {
+        if let agentStateDirectory { try? FileManager.default.removeItem(at: agentStateDirectory) }
+        agentStateDirectory = nil
         guard let surface else { return }
+        // Denial consumes native request state, so it must happen while the surface is still alive.
+        let confirmations = clipboardConfirmations
+        clipboardConfirmations.removeAll()
+        confirmations.forEach { $0.cancel() }
         // Freeing joins the renderer thread, which never returns if it's stuck. Leak the surface instead,
         // and keep this view alive because libghostty callbacks still point at it. Its pty never closes,
         // so its programs would never get SIGHUP: kill them.

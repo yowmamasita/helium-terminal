@@ -66,19 +66,42 @@ group (with Don't Ask Again). Groups are kept across quit and relaunch.
 
 ## Session restore
 
-Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Panes that were running
-Claude Code or Codex resume the same conversation: Helium types `claude --resume <id>` or `codex resume <id>` with
-the flags the agent was started with (model, permission mode and so on), minus any initial prompt. Other programs
-start fresh, because a process can't outlive the app. Closing the window instead of quitting starts clean next
-time.
+Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Claude Code, Codex,
+omp (the pi harness), and OpenCode resume the conversation selected in each pane, including changes made
+with their own session pickers. Compatible launch flags and configuration-directory overrides are preserved;
+initial prompts and image attachments are not replayed. Other programs start in a fresh shell. Closing the
+window instead of quitting starts clean next time.
 
-Settings, Helium tab, Session restore: turn restoring off, turn resuming off for Claude Code or Codex separately,
-or change the resume command. Templates take `{id}`, `{flags}` and `{cwd}`; the defaults are
-`claude {flags} --resume {id}` and `codex resume {id} {flags}`, so `cc --resume {id}` uses your own alias.
+An agent with no saved conversation reopens fresh. Missing previously saved history is not silently replaced
+with a different conversation.
 
-Helium finds Claude Code's session from `~/.claude/sessions/<pid>.json`, and Codex's from the session log the
-running process keeps open. It saves the layout every few seconds and on quit to
-`~/Library/Application Support/helium-terminal/state.json`.
+Settings > General > Session restore controls restoring, resuming each agent, and custom resume commands.
+Templates take shell-quoted `{command}` (the original executable, including an interpreter when needed),
+`{id}`, `{file}` (omp's journal), `{flags}`, and `{cwd}`. Defaults:
+
+- Claude Code: `{command} {flags} --resume {id}`
+- Codex: `{command} resume {id} {flags}`
+- omp: `{command} {flags} --resume {file}`
+- OpenCode: `{command} {flags} --session {id}`
+
+Custom commands can still use shell functions or aliases, for example `cc --resume {id}`. The default
+`{command}` avoids depending on the new shell's `PATH`. Only whitelisted, non-secret environment overrides
+for configuration paths and profiles are saved, including `CODEX_HOME` and omp's agent/session directories.
+
+Claude Code is identified through `~/.claude/sessions/<pid>.json`. Codex's title exposes a shortened thread ID;
+Helium resolves it against native session metadata and loaded threads, including daemon-backed sessions.
+It resumes only when exactly one full ID matches, never by choosing the latest conversation. omp reports
+its exact journal path, with a per-TTY breadcrumb fallback when extensions are disabled. OpenCode reports the
+selected TUI route, rather than guessing from backend activity.
+
+With restore enabled, Helium installs an omp extension loader and an OpenCode TUI plugin, both inert outside
+Helium. It also adds `app-name` and `thread-id` to Codex's `tui.terminal_title`, preserving other settings and
+components. Codex's executable is not patched. Integration setup errors appear in Settings rather than
+overwriting an unrecognized configuration.
+
+Relaunch Helium after upgrading, then restart agents inside the updated app to enable the new tracking.
+Use the agent's own resume picker once for conversations an older Helium did not track. Helium saves the
+layout every few seconds and on quit to `~/Library/Application Support/helium-terminal/state.json`.
 
 ## Updates
 

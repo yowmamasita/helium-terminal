@@ -394,8 +394,8 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
         let grid = NSGridView()
         grid.rowSpacing = 8
         grid.columnSpacing = 10
-        for (kind, name) in [(AgentSession.Kind.claude, "Claude Code"), (.codex, "Codex")] {
-            let toggle = NSButton(checkboxWithTitle: "Resume \(name) sessions with", target: self,
+        for kind in AgentSession.Kind.allCases {
+            let toggle = NSButton(checkboxWithTitle: "Resume \(kind.displayName)", target: self,
                                   action: #selector(agentResumeToggled(_:)))
             toggle.state = AgentSession.resumeEnabled(kind) ? .on : .off
             toggle.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
@@ -403,7 +403,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             field.placeholderString = AgentSession.defaultTemplate(for: kind)
             field.stringValue = HeliumDefaults.standard.string(forKey: AgentSession.templateKey(for: kind)) ?? ""
             field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            field.widthAnchor.constraint(equalToConstant: 300).isActive = true
+            field.widthAnchor.constraint(equalToConstant: 260).isActive = true
             field.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
             field.target = self
             field.action = #selector(templateChanged(_:))
@@ -412,11 +412,14 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             agentControls += [toggle, field]
             grid.addRow(with: [toggle, field])
         }
-        let hint = label("{id} is the session, {flags} the flags the agent was started with, {cwd} its folder. "
-                         + "Leave empty for the default. Other programs always start fresh.", secondary: true)
+        let hint = label("{command} is the launch program, {id} the session, {file} its omp journal, "
+                         + "{flags} the launch flags, {cwd} its folder. Leave empty for the default. Other programs start fresh."
+                         + (AgentIntegrations.errors.isEmpty ? "" : "\nIntegration setup: " + AgentIntegrations.errors.joined(separator: "; ")),
+                         secondary: true)
         setAgentControlsEnabled(SessionState.restoreEnabled)
 
         let stack = NSStackView(views: [heading, restore, grid, hint])
+        hint.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
