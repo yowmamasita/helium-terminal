@@ -1,0 +1,164 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index eec655037..84ea17005 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1189,6 +1189,8 @@ GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
+ GHOSTTY_API void ghostty_surface_set_focus(ghostty_surface_t, bool);
+ GHOSTTY_API void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
++GHOSTTY_API bool ghostty_surface_renderer_ping(ghostty_surface_t);
++GHOSTTY_API void ghostty_surface_debug_hang_renderer(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
+ GHOSTTY_API ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);
+ GHOSTTY_API uint64_t ghostty_surface_foreground_pid(ghostty_surface_t);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index b90366ac7..b237c23cf 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1854,6 +1854,16 @@ pub const CAPI = struct {
+         return surface.core_surface.needsConfirmQuit();
+     }
+ 
++    /// helium-terminal: pings the renderer thread; false if the previous ping went unanswered.
++    export fn ghostty_surface_renderer_ping(surface: *Surface) bool {
++        return surface.core_surface.renderer_thread.ping();
++    }
++
++    /// helium-terminal: test hook that blocks the renderer thread forever.
++    export fn ghostty_surface_debug_hang_renderer(surface: *Surface) void {
++        surface.core_surface.renderer_thread.debugHang();
++    }
++
+     /// Returns true if the surface process has exited.
+     export fn ghostty_surface_process_exited(surface: *Surface) bool {
+         return surface.core_surface.child_exited;
+diff --git a/src/datastruct/blocking_queue.zig b/src/datastruct/blocking_queue.zig
+index 89ce57d8c..76d960a4b 100644
+--- a/src/datastruct/blocking_queue.zig
++++ b/src/datastruct/blocking_queue.zig
+@@ -2,9 +2,19 @@
+ //! between threads.
+ 
+ const std = @import("std");
++const builtin = @import("builtin");
+ const Allocator = std.mem.Allocator;
+ const compat_thread = @import("../lib/compat/thread.zig");
+ 
++const main_thread_timeout_ns = 250 * std.time.ns_per_ms;
++
++extern "c" fn pthread_main_np() c_int;
++
++fn onMainThread() bool {
++    if (comptime !builtin.os.tag.isDarwin()) return false;
++    return pthread_main_np() == 1;
++}
++
+ /// Returns a blocking queue implementation for type T.
+ ///
+ /// This is tailor made for ghostty usage so it isn't meant to be maximally
+@@ -99,7 +109,14 @@ pub fn BlockingQueue(
+         /// Push a value to the queue. This returns the total size of the
+         /// queue (unread items) after the push. A return value of zero
+         /// means that the push failed.
+-        pub fn push(self: *Self, io: std.Io, value: T, timeout: Timeout) Size {
++        pub fn push(self: *Self, io: std.Io, value: T, requested: Timeout) Size {
++            // helium-terminal: the main thread never waits forever on a full queue. One stuck consumer
++            // (a pane's renderer or IO thread) would otherwise freeze every tab; the message is dropped.
++            const timeout: Timeout = if (requested == .forever and onMainThread())
++                .{ .ns = main_thread_timeout_ns }
++            else
++                requested;
++
+             self.mutex.lockUncancelable(io);
+             defer self.mutex.unlock(io);
+ 
+diff --git a/src/renderer/Thread.zig b/src/renderer/Thread.zig
+index 95e708344..34f00e892 100644
+--- a/src/renderer/Thread.zig
++++ b/src/renderer/Thread.zig
+@@ -58,6 +58,15 @@ animation_wake: rendererpkg.Renderer.AnimationWake.Kind = .draw,
+ draw_now: xev.Async,
+ draw_now_c: xev.Completion = .{},
+ 
++/// helium-terminal: liveness probe. The app bumps `ping_sent` and notifies `ping_h`, and this thread
++/// copies it to `ping_seen`. A ping that stays unanswered means this thread is stuck.
++ping_h: xev.Async,
++ping_c: xev.Completion = .{},
++ping_sent: std.atomic.Value(u64) = .init(0),
++ping_seen: std.atomic.Value(u64) = .init(0),
++/// helium-terminal: test hook, see `debugHang`.
++debug_hang: std.atomic.Value(bool) = .init(false),
++
+ /// The timer used for cursor blinking
+ cursor_h: xev.Timer,
+ cursor_c: xev.Completion = .{},
+@@ -140,6 +149,9 @@ pub fn init(
+     var draw_now = try xev.Async.init();
+     errdefer draw_now.deinit();
+ 
++    var ping_h = try xev.Async.init();
++    errdefer ping_h.deinit();
++
+     // Setup a timer for blinking the cursor
+     var cursor_timer = try xev.Timer.init();
+     errdefer cursor_timer.deinit();
+@@ -156,6 +168,7 @@ pub fn init(
+         .stop = stop_h,
+         .render_h = render_h,
+         .draw_now = draw_now,
++        .ping_h = ping_h,
+         .cursor_h = cursor_timer,
+         .surface = surface,
+         .renderer = renderer_impl,
+@@ -179,6 +192,7 @@ pub fn deinit(self: *Thread) void {
+     self.wakeup.deinit();
+     self.render_h.deinit();
+     self.draw_now.deinit();
++    self.ping_h.deinit();
+     self.cursor_h.deinit();
+     if (comptime terminalpkg.compression_enabled)
+         self.compression.deinit();
+@@ -232,6 +246,7 @@ fn threadMain_(self: *Thread) !void {
+     self.wakeup.wait(&self.loop, &self.wakeup_c, Thread, self, wakeupCallback);
+     self.stop.wait(&self.loop, &self.stop_c, Thread, self, stopCallback);
+     self.draw_now.wait(&self.loop, &self.draw_now_c, Thread, self, drawNowCallback);
++    self.ping_h.wait(&self.loop, &self.ping_c, Thread, self, pingCallback);
+ 
+     // Send an initial wakeup message so that we render right away.
+     try self.wakeup.notify();
+@@ -719,6 +734,35 @@ fn cursorCancelCallback(
+ //     tracy.frameMark();
+ // }
+ 
++/// Sends a ping and returns whether the previous one was answered.
++/// Never blocks, so the app can call it on a thread that might be stuck. Call from one thread only.
++pub fn ping(self: *Thread) bool {
++    const sent = self.ping_sent.load(.monotonic);
++    const answered = self.ping_seen.load(.acquire) == sent;
++    self.ping_sent.store(sent + 1, .release);
++    self.ping_h.notify() catch {};
++    return answered;
++}
++
++/// Test hook: blocks this thread forever on its next ping, like a renderer stuck in a system call.
++pub fn debugHang(self: *Thread) void {
++    self.debug_hang.store(true, .release);
++    self.ping_h.notify() catch {};
++}
++
++fn pingCallback(
++    self_: ?*Thread,
++    _: *xev.Loop,
++    _: *xev.Completion,
++    r: xev.Async.WaitError!void,
++) xev.CallbackAction {
++    _ = r catch return .rearm;
++    const t = self_.?;
++    while (t.debug_hang.load(.acquire)) std.Io.sleep(global.io(), .fromSeconds(1), .awake) catch {};
++    t.ping_seen.store(t.ping_sent.load(.acquire), .release);
++    return .rearm;
++}
++
+ fn stopCallback(
+     self_: ?*Thread,
+     _: *xev.Loop,

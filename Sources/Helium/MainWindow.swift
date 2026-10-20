@@ -73,6 +73,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         if let pane = ws.focusedPane { window?.makeFirstResponder(pane.surface) }
         metadataChanged()
         refreshGitStatus()
+        promptIfHung()
     }
 
     func gotoWorkspace(_ n: Int) {
@@ -163,6 +164,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             if ws === selected, let f = ws.focused { window?.makeFirstResponder(f.surface) }
         }
         metadataChanged()
+        promptIfHung()
     }
 
     // MARK: Tab groups
@@ -267,6 +269,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func refreshMetadata() {
+        checkRenderers()
         let tree = ProcessTree()
         for ws in workspaces {
             let branch = ws.cwd.flatMap(Metadata.gitBranch)
@@ -282,6 +285,51 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         refreshGitStatus()
         metadataChanged()
         saveState()
+    }
+
+    // MARK: Hang detection
+
+    /// Like Chrome's "Page Unresponsive": a pane whose renderer stops answering pings shows as
+    /// "Not responding", and when it's in the visible tab the user can wait or kill it.
+    private func checkRenderers() {
+        let changed = workspaces.flatMap(\.panes).filter { $0.surface.checkRenderer() }
+        guard !changed.isEmpty else { return promptIfHung() }
+        // A recovered pane missed size, visibility and focus changes while it was hung.
+        updateVisibility()
+        for p in changed where !p.surface.hung {
+            p.surface.syncFocus()
+            p.surface.setFrameSize(p.surface.frame.size)
+        }
+        promptIfHung()
+    }
+
+    private var hangAlert: NSAlert?
+
+    /// Asks about the visible tab's hung panes, or takes the question down once none are left.
+    private func promptIfHung() {
+        guard let window, let ws = selected else { return }
+        let hung = ws.panes.filter { $0.surface.hung && $0.surface.hangPromptAfter < Date() }
+        if let hangAlert {
+            if hung.isEmpty { window.endSheet(hangAlert.window, returnCode: .abort) }
+            return
+        }
+        guard !hung.isEmpty else { return }
+        let alert = NSAlert()
+        hangAlert = alert
+        alert.messageText = hung.count == ws.panes.count ? "This tab isn't responding" : "A pane in this tab isn't responding"
+        alert.informativeText = "You can wait for it, or kill it. Killing it ends the programs running in it."
+        alert.addButton(withTitle: "Wait")
+        alert.addButton(withTitle: "Kill")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            self.hangAlert = nil
+            if response == .abort { return }
+            if response == .alertSecondButtonReturn {
+                for p in hung where p.workspace != nil { self.close(p) } // destroy() kills a hung pane's programs
+            } else {
+                hung.forEach { $0.surface.hangPromptAfter = Date() + 30 }
+            }
+        }
     }
 
     /// Notes which panes run Claude Code or Codex, so a relaunch can resume them.

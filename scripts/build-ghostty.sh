@@ -6,7 +6,7 @@ REV=$(sed -n 's/^ghostty commit: //p' vendor.lock)
 [ -d vendor/ghostty ] || git clone https://github.com/ghostty-org/ghostty.git vendor/ghostty
 git -C vendor/ghostty fetch --depth 1 origin "$REV" && git -C vendor/ghostty checkout -q "$REV"
 cd vendor/ghostty
-git checkout -q -- . && git apply ../../patches/*.patch
+git checkout -q -- . && git clean -fdq && git apply ../../patches/*.patch
 ZIG="${ZIG:-$(mise which zig 2>/dev/null || command -v zig)}"
 rm -rf macos/GhosttyKit.xcframework
 # ReleaseFast: ReleaseSmall saves 3 MB but parses escape-heavy output ~40% slower.

@@ -209,6 +209,10 @@ final class Workspace {
     var group: TabGroup?
 
     var title: String {
+        panes.contains(where: \.surface.hung) ? "Not responding: " + plainTitle : plainTitle
+    }
+
+    private var plainTitle: String {
         if let customTitle { return customTitle }
         guard let s = focusedPane?.surface else { return "Terminal" }
         if !s.title.isEmpty { return s.title }

@@ -28,6 +28,15 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   scrolls fall short), and in mouse-reporting apps a wheel notch sends iTerm2's count of wheel reports (rounded
   OS delta, at least 1) without `mouse-scroll-multiplier`. Upstream multiplies, which makes Claude Code's
   fullscreen TUI jump.
+- **Display link patch:** upstream ffaaf5d7a, backported, starts and stops the CVDisplayLink only on the main
+  thread. Stopping it from the render thread could race CoreVideo's own display-change stop and hang the app
+  forever. Drop the patch once `vendor.lock` is at or past that commit.
+- **One stuck pane never freezes the app** (`patches/ghostty-pane-watchdog.patch` plus `MainWindow.checkRenderers`):
+  on the main thread a full libghostty queue drops the message after 250 ms instead of waiting forever. The 3 s
+  metadata poll pings every pane's renderer without blocking; two missed pings mark it hung ("Not responding:"
+  title, no more messages sent to it), and in the visible tab a sheet offers Wait (30 s) or Kill. A hung pane is
+  never freed, because that joins the stuck thread: `destroy()` SIGKILLs its tty's processes and leaks the surface.
+  Test with `HELIUM_DEBUG_HANG=1` at launch and `helium debug-hang --pane N`.
 - **Ghostty themes aren't bundled** (2.6 MB). Users put themes in `~/.config/ghostty/themes`.
 - **Config:** the user's Ghostty config loads first, then `~/Library/Application Support/helium-terminal/config`,
   which Settings writes. Never rewrite the user's Ghostty config; it may be shared with Ghostty.app.
@@ -35,7 +44,8 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   so `reportedFocus` starts `true`. Getting this wrong keeps the cursor blink and display link running in the
   background.
 - **Visibility:** hidden tabs and covered or minimized windows call `ghostty_surface_set_occlusion(false)`, which
-  frees GPU buffers. Don't treat a window as occluded before its first show.
+  frees GPU buffers. Don't treat a window as occluded before its first show. Hidden surfaces also get no new
+  size until shown (`SurfaceView.sendSize`), so a window resize wakes only the visible tab's renderer and program.
 - **Content scale:** comes from `window.backingScaleFactor`, never a frame ratio, because the first tab starts at
   zero size.
 - **Two kinds of notification:** green (ring and a green right edge on the row; cleared by focusing the pane) for

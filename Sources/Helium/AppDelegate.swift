@@ -108,7 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     "unread": ws.unread, "waiting": ws.waiting, "labels": ws.labels, "group": ws.group?.name ?? NSNull(), "selected": ws === c.selected,
                     "panes": ws.panes.map { p in
                         ["id": p.surface.id, "title": p.surface.title, "cwd": p.surface.pwd ?? NSNull(),
-                         "focused": p === ws.focusedPane, "ringing": p.ringing, "waiting": p.waiting] as [String: Any]
+                         "focused": p === ws.focusedPane, "ringing": p.ringing, "waiting": p.waiting,
+                         "hung": p.surface.hung] as [String: Any]
                     },
                 ] as [String: Any]
             }]
@@ -131,6 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             else { return ["ok": false, "error": "no such pane"] }
             ws.focused = p
             c.select(ws)
+        case "debug-hang" where ProcessInfo.processInfo.environment["HELIUM_DEBUG_HANG"] == "1":
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
+            p.surface.debugHangRenderer()
         case "send":
             guard let p = target, let arg else { return ["ok": false, "error": "need an existing pane and text"] }
             p.surface.type(arg)

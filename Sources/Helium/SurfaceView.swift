@@ -67,8 +67,47 @@ final class SurfaceView: NSView, NSTextInputClient {
     /// Frees the libghostty surface. Called once when the pane closes.
     func destroy() {
         guard let surface else { return }
+        // Freeing joins the renderer thread, which never returns if it's stuck. Leak the surface instead,
+        // and keep this view alive because libghostty callbacks still point at it. Its pty never closes,
+        // so its programs would never get SIGHUP: kill them.
+        if hung {
+            killProcesses()
+            Self.abandoned.append(self)
+            self.surface = nil
+            return
+        }
         self.surface = nil
         ghostty_surface_free(surface)
+    }
+
+    // MARK: Hang detection
+
+    private static var abandoned: [SurfaceView] = []
+
+    /// The renderer missed two pings in a row (one metadata poll apart, so 3 to 6 s).
+    private(set) var hung = false
+    private var missedPings = 0
+    /// After the user picks Wait, don't ask again before this.
+    var hangPromptAfter = Date.distantPast
+
+    /// Pings the renderer thread without blocking. Returns true when `hung` changed.
+    func checkRenderer() -> Bool {
+        guard let surface else { return false }
+        missedPings = ghostty_surface_renderer_ping(surface) ? 0 : missedPings + 1
+        let was = hung
+        hung = missedPings >= 2
+        return hung != was
+    }
+
+    /// SIGKILLs everything on this pane's tty, plus descendants that left it.
+    private func killProcesses() {
+        guard let dev = ttyName.flatMap(Metadata.ttyDevice) else { return }
+        for pid in ProcessTree().processes(onTTYs: [dev]) where pid != getpid() { kill(pid, SIGKILL) }
+    }
+
+    /// Test hook for hang detection: blocks this pane's renderer thread forever.
+    func debugHangRenderer() {
+        if let surface { ghostty_surface_debug_hang_renderer(surface) }
     }
 
     /// Working directory to hand to a new tab or split opened from this one.
@@ -95,8 +134,25 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     var needsConfirmQuit: Bool { surface.map { ghostty_surface_needs_confirm_quit($0) } ?? false }
 
+    /// Hidden surfaces don't take new sizes until shown: a resize wakes every renderer and makes every
+    /// program repaint, and a stuck renderer would block the main thread here.
+    private var visible = true
+    private var sentSize: NSSize?
+
     func setVisible(_ visible: Bool) {
-        if let surface { ghostty_surface_set_occlusion(surface, visible) }
+        self.visible = visible
+        // A hung renderer can't take messages; MainWindow calls this again if it recovers.
+        guard let surface, !hung else { return }
+        if visible { sendSize() } // before un-occluding, so the first frame is already the right size
+        ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    private func sendSize() {
+        guard let surface, !hung else { return }
+        let px = convertToBacking(NSRect(origin: .zero, size: frame.size)).size
+        guard px != sentSize else { return }
+        sentSize = px
+        ghostty_surface_set_size(surface, UInt32(px.width), UInt32(px.height))
     }
 
     // MARK: Automation
@@ -123,9 +179,9 @@ final class SurfaceView: NSView, NSTextInputClient {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        guard let surface else { return }
-        let px = convertToBacking(NSRect(origin: .zero, size: newSize)).size
-        ghostty_surface_set_size(surface, UInt32(px.width), UInt32(px.height))
+        // Until a real size has gone through, send it anyway, so a tab restored in the background
+        // doesn't run at zero size (the first tab joins the window at zero size).
+        if visible || sentSize == nil || sentSize == .zero { sendSize() }
     }
 
     override func viewDidChangeBackingProperties() {
@@ -177,7 +233,7 @@ final class SurfaceView: NSView, NSTextInputClient {
     /// libghostty blinks the cursor and runs vsync only for focused surfaces, so like
     /// Ghostty, a surface is focused only as first responder of the key window.
     func syncFocus(isResponder: Bool? = nil) {
-        guard let surface else { return }
+        guard let surface, !hung else { return }
         let focused = window?.isKeyWindow == true && (isResponder ?? (window?.firstResponder === self))
         guard focused != reportedFocus else { return }
         reportedFocus = focused
