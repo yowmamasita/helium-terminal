@@ -242,6 +242,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: Metadata
 
+    private var metadataPending = false
+
+    /// Agent spinners retitle tabs many times per libghostty tick. Rebuilding the sidebar for each one kept the tick
+    /// from ever emptying its mailbox, so these rebuild once, after the tick.
+    func metadataChangedSoon() {
+        guard !metadataPending else { return }
+        metadataPending = true
+        DispatchQueue.main.async { [weak self] in
+            self?.metadataPending = false
+            autoreleasepool { self?.metadataChanged() }
+        }
+    }
+
     func metadataChanged() {
         sidebar.update(workspaces, selected: selected)
         (window?.contentView as? ContainerView)?.setInfo(

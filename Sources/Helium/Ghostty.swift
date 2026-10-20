@@ -17,7 +17,7 @@ final class Ghostty {
             userdata: nil,
             supports_selection_clipboard: false,
             wakeup_cb: { _ in DispatchQueue.main.async { Ghostty.shared.tick() } },
-            action_cb: { _, target, action in Ghostty.shared.handle(target, action) },
+            action_cb: { _, target, action in autoreleasepool { Ghostty.shared.handle(target, action) } },
             read_clipboard_cb: { ud, loc, state, mimes, n, list in
                 Ghostty.readClipboard(ud, loc, state, mimes, n, list)
             },
@@ -39,6 +39,7 @@ final class Ghostty {
 
     func tick() {
         // The run loop drains its pool only before sleeping, which a busy main queue may never let it do.
+        // A tick runs until libghostty's mailbox is empty, so action_cb drains its own pool as well.
         if let app { autoreleasepool { ghostty_app_tick(app) } }
     }
 
@@ -118,11 +119,11 @@ final class Ghostty {
         case GHOSTTY_ACTION_SET_TITLE:
             guard let view, let t = a.set_title.title else { return false }
             view.title = String(cString: t)
-            window.metadataChanged()
+            window.metadataChangedSoon()
         case GHOSTTY_ACTION_PWD:
             guard let view, let p = a.pwd.pwd else { return false }
             view.pwd = String(cString: p)
-            window.metadataChanged()
+            window.metadataChangedSoon()
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let view else { return false }
             let n = a.desktop_notification

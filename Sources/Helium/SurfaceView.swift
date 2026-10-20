@@ -114,7 +114,10 @@ final class SurfaceView: NSView, NSTextInputClient {
     var inheritedWorkingDirectory: String? {
         guard let surface else { return pwd }
         let cfg = ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-        return cfg.working_directory.map { String(cString: $0) } ?? pwd
+        guard let path = cfg.working_directory else { return pwd }
+        // newSurfaceOptions allocates this NUL-terminated copy with libghostty's allocator.
+        defer { ghostty_string_free(ghostty_string_s(ptr: path, len: UInt(strlen(path)), sentinel: true)) }
+        return String(cString: path)
     }
 
     var ttyName: String? {
