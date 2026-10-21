@@ -14,7 +14,7 @@ cask "helium-terminal" do
 
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "Helium Terminal.app"
   binary "#{appdir}/Helium Terminal.app/Contents/MacOS/helium-terminal", target: "helium"
