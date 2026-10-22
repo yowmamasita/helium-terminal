@@ -41,6 +41,8 @@ scripts/install-local.sh   # build and copy to /Applications, so Spotlight and R
 
 To release, bump `VERSION`, add `packaging/notes/<version>.md`, and run `NOTARY_PROFILE=<profile> scripts/release.sh`.
 That script builds, signs, notarizes, publishes the GitHub release and updates the tap.
+The tap definitions are generated from `packaging/helium-terminal.cask.rb` and
+`packaging/helium-terminal.formula.rb`. Change those templates, not just the tap, before publishing.
 
 ## Settings
 
