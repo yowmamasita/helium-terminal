@@ -83,7 +83,9 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   bottle, because zerobrew can't install `app` casks. Both live in `yowmamasita/homebrew-tap`.
 - **Updates:** a built-in updater, not Sparkle. It reads GitHub releases, installs only builds signed by the
   running app's Apple team and notarized, swaps the app on disk, and never relaunches without the user (open
-  shells would die). It's disabled for dev builds, formula installs and translocated copies.
+  shells would die). Local builds are Developer ID signed
+  too (`build-app.sh` picks the keychain certificate) so privacy grants survive rebuilds, which also enables the
+  updater on them. It's disabled for ad-hoc builds, formula installs and translocated copies.
 
 ## Working rules
 
@@ -117,7 +119,7 @@ Publishing pushes only `gh-pages`, never main. Keep it free of cmux comparisons;
 
 ```sh
 scripts/build-ghostty.sh               # libghostty (needs Zig 0.16.0); forces a SwiftPM relink
-scripts/build-app.sh                   # build/Helium Terminal.app (SIGN_IDENTITY=... for Developer ID)
+scripts/build-app.sh                   # build/Helium Terminal.app (Developer ID from the keychain; SIGN_IDENTITY= for ad-hoc)
 scripts/install-local.sh               # build and copy to /Applications (Spotlight/Raycast find it there)
 swift test                             # unit tests
 bench/vs-iterm2.sh                     # size, launch, memory, CPU vs iTerm2 (iTerm2 must be closed)

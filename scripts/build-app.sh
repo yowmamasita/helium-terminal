@@ -3,9 +3,12 @@
 #
 #   SIGN_IDENTITY="Developer ID Application: ..." scripts/build-app.sh
 #
-# Without SIGN_IDENTITY the app is ad-hoc signed, which is fine for local use.
+# SIGN_IDENTITY defaults to the keychain's Developer ID certificate, so every build keeps one
+# identity and macOS privacy grants (Downloads, Desktop, ...) survive rebuilds; an ad-hoc
+# signature changes each build and loses them. With no certificate the app is ad-hoc signed.
 set -eu
 cd "$(dirname "$0")/.."
+SIGN_IDENTITY=${SIGN_IDENTITY-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)}
 VERSION=$(cat VERSION)
 swift build -c release
 APP="build/Helium Terminal.app"
