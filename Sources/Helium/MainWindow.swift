@@ -677,6 +677,14 @@ extension MainWindowController: TabGroupActions {
         regroup()
     }
 
+    func move(_ group: TabGroup, before: Workspace?) {
+        let tabs = workspaces.filter { $0.group === group }
+        workspaces.removeAll { $0.group === group }
+        let at = before.flatMap { b in workspaces.firstIndex { $0 === b } } ?? workspaces.count
+        workspaces.insert(contentsOf: tabs, at: at)
+        regroup()
+    }
+
     func groupsChanged() {
         metadataChanged()
         saveState() // a group's name or color

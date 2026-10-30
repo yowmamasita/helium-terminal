@@ -154,6 +154,7 @@ final class SidebarTests: XCTestCase {
                 moved = ws
                 self.before = before
             }
+            func move(_ group: TabGroup, before: Workspace?) {}
         }
         _ = NSApplication.shared
         let window = TrackingWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 500),
@@ -214,6 +215,22 @@ final class SidebarTests: XCTestCase {
         check(5, nil, nil)     // the end
     }
 
+    /// A dropped group lands in front of a header or ungrouped tab, never inside another group.
+    func testGroupDropTarget() {
+        let api = TabGroup(), infra = TabGroup(collapsed: true)
+        let a = Workspace(); a.group = api
+        let b = Workspace(); b.group = api
+        let c = Workspace(); c.group = infra
+        let lone = Workspace()
+        let items: [SidebarView.Item] = [.header(api, first: a), .row(a), .row(b), .header(infra, first: c), .row(lone)]
+        XCTAssertTrue(SidebarView.groupDropTarget(items, slot: 0) === a)
+        XCTAssertTrue(SidebarView.groupDropTarget(items, slot: 1) === c) // inside API: past it
+        XCTAssertTrue(SidebarView.groupDropTarget(items, slot: 2) === c)
+        XCTAssertTrue(SidebarView.groupDropTarget(items, slot: 3) === c)
+        XCTAssertTrue(SidebarView.groupDropTarget(items, slot: 4) === lone)
+        XCTAssertNil(SidebarView.groupDropTarget(items, slot: 5))
+    }
+
     /// A menu stays actionable while an agent updates the title.
     func testRowMenuWorksAfterMetadataUpdates() throws {
         final class Actions: TabGroupActions {
@@ -228,6 +245,7 @@ final class SidebarTests: XCTestCase {
             func newTab(in group: TabGroup) {}
             func groupsChanged() {}
             func move(_ ws: Workspace, before: Workspace?, group: TabGroup?) {}
+            func move(_ group: TabGroup, before: Workspace?) {}
         }
         let actions = Actions()
         let ws = Workspace()
@@ -275,6 +293,7 @@ final class SidebarTests: XCTestCase {
             func newTab(in group: TabGroup) {}
             func groupsChanged() {}
             func move(_ ws: Workspace, before: Workspace?, group: TabGroup?) {}
+            func move(_ group: TabGroup, before: Workspace?) {}
         }
         let a = TabGroup(name: "A"), b = TabGroup(name: "B")
         let actions = Actions()

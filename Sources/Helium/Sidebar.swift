@@ -234,7 +234,37 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     /// Drags `ws`'s row like an iTerm2 tab: the row lifts and follows the pointer while the others slide apart to
     /// open a gap where it will land. Periodic tracking events keep autoscroll moving even on a still pointer.
     func trackDrag(_ ws: Workspace, from down: NSEvent) {
-        guard let window, let doc = stack.superview else { return }
+        guard let row = rowViews[ObjectIdentifier(ws)] else { return }
+        var items = kinds
+        items.removeAll { if case .row(let w) = $0 { w === ws } else { false } }
+        guard let slot = track(row, hiding: [], from: down) else { return }
+        let t = Self.dropTarget(items, slot: slot)
+        actions?.move(ws, before: t.before, group: t.group)
+    }
+
+    /// Drags a group's header; its tabs hide while it's carried and move with it. Returns false for a plain click.
+    func trackDrag(_ group: TabGroup, from down: NSEvent) -> Bool {
+        guard let header = headers[group.id] else { return false }
+        let rows = kinds.compactMap { item -> NSView? in
+            guard case .row(let w) = item, w.group === group else { return nil }
+            return rowViews[ObjectIdentifier(w)]
+        }
+        var items = kinds
+        items.removeAll {
+            switch $0 {
+            case .header(let g, _): g === group
+            case .row(let w): w.group === group
+            }
+        }
+        guard let slot = track(header, hiding: rows, from: down) else { return false }
+        actions?.move(group, before: Self.groupDropTarget(items, slot: slot))
+        return true
+    }
+
+    /// Lifts `item` out of the stack and follows the pointer; returns the gap's slot among the remaining visible
+    /// items on drop, or nil if the pointer never moved far enough to count as a drag.
+    private func track(_ item: NSView, hiding: [NSView], from down: NSEvent) -> Int? {
+        guard let window, let doc = stack.superview else { return nil }
         let start = down.locationInWindow
         var lifted: (row: NSView, gap: NSView, grab: CGFloat)?
         NSEvent.startPeriodicEvents(afterDelay: 0.1, withPeriod: 0.05) // keeps autoscroll going on a still pointer
@@ -248,9 +278,12 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             if lifted == nil {
                 // A few points of slack so a shaky click doesn't count as a drag.
                 guard hypot(last.locationInWindow.x - start.x, last.locationInWindow.y - start.y) > 4,
-                      let row = rowViews[ObjectIdentifier(ws)], let i = stack.arrangedSubviews.firstIndex(of: row)
+                      let i = stack.arrangedSubviews.firstIndex(of: item)
                 else { return }
                 dragging = true
+                let row = item
+                hiding.forEach { $0.isHidden = true } // a stack view detaches hidden views from layout
+                stack.layoutSubtreeIfNeeded()
                 let frame = doc.convert(row.frame, from: stack)
                 let gap = NSView()
                 gap.heightAnchor.constraint(equalToConstant: frame.height).isActive = true
@@ -271,7 +304,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
             let p = doc.convert(last.locationInWindow, from: nil)
             row.frame.origin.y = min(max(p.y - grab, 0), max(stack.frame.maxY - row.frame.height, 0))
             // The gap goes after every other item whose middle is above the lifted row's middle.
-            let others = stack.arrangedSubviews.filter { $0 !== gap }
+            let others = stack.arrangedSubviews.filter { $0 !== gap && !$0.isHidden }
             // Use the unclamped position so the pointer can carry a tab past the last row.
             let middle = p.y - grab + row.frame.height / 2
             let slot = others.filter { doc.convert($0.frame, from: stack).midY < middle }.count
@@ -284,18 +317,30 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
                 stack.layoutSubtreeIfNeeded()
             }
         }
-        guard let (row, gap, _) = lifted else { return }
-        let slot = stack.arrangedSubviews.firstIndex(of: gap) ?? 0
+        guard let (row, gap, _) = lifted else { return nil }
+        let slot = stack.arrangedSubviews.prefix { $0 !== gap }.filter { !$0.isHidden }.count
         row.removeFromSuperview()
         gap.removeFromSuperview()
+        hiding.forEach { $0.isHidden = false }
         dragging = false
         row.shadow = nil
         row.layer?.shadowOpacity = 0
+        row.layer?.backgroundColor = nil
         (row as? Row)?.refreshColors()
-        var items = kinds
-        items.removeAll { if case .row(let w) = $0 { w === ws } else { false } }
-        let t = Self.dropTarget(items, slot: slot)
-        actions?.move(ws, before: t.before, group: t.group)
+        return slot
+    }
+
+    /// Where a dragged group dropped into gap `slot` goes: in front of `before` (nil: the end). A drop inside another
+    /// group moves on past that group's tabs, since groups never nest.
+    static func groupDropTarget(_ items: [Item], slot: Int) -> Workspace? {
+        for item in items[min(slot, items.count)...] {
+            switch item {
+            case .header(_, let first): return first
+            case .row(let ws) where ws.group == nil: return ws
+            case .row: continue
+            }
+        }
+        return nil
     }
 
     /// Where a tab dropped into gap `slot` goes: in front of `before` (nil: the end), in `group`. A tab joins a group
@@ -712,6 +757,7 @@ protocol TabGroupActions: AnyObject {
     func newTab(in group: TabGroup)
     func groupsChanged()
     func move(_ ws: Workspace, before: Workspace?, group: TabGroup?)
+    func move(_ group: TabGroup, before: Workspace?)
 }
 
 /// A group's header: chevron, colored name pill, and when collapsed the tab count and any attention signal.
@@ -760,6 +806,9 @@ final class GroupHeader: NSView {
         model = m
         self.actions = actions
         super.init(frame: .zero)
+        // A layer for the background and shadow it gets while dragged, like a row's.
+        wantsLayer = true
+        layer?.cornerRadius = 6
         chevron.contentTintColor = .secondaryLabelColor
         chevron.symbolConfiguration = .init(pointSize: 10, weight: .semibold)
         pill.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -837,7 +886,7 @@ final class GroupHeader: NSView {
 
     override func mouseDown(with event: NSEvent) {
         // The second click of a double-click would undo the first.
-        guard event.clickCount == 1 else { return }
+        guard event.clickCount == 1, sidebar?.trackDrag(model.group, from: event) != true else { return }
         actions?.toggleCollapsed(model.group)
     }
 
