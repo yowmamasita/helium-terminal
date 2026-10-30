@@ -288,7 +288,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             let branch = ws.cwd.flatMap(Metadata.gitBranch)
             if branch != ws.branch { ws.gitStatus = nil } // another branch or repo; the next git run fills it in
             ws.branch = branch
-            ws.ports = Metadata.listeningPorts(ttys: ws.panes.compactMap(\.surface.ttyName), tree: tree)
+            let pids = tree.processes(onTTYs: ws.panes.compactMap(\.surface.ttyName).compactMap(Metadata.ttyDevice))
+            ws.ports = Metadata.listeningPorts(pids)
+            ws.memory = Metadata.footprint(pids)
             // Fall back to the foreground process's cwd when shell integration isn't reporting it.
             for p in ws.panes where p.surface.pwd == nil {
                 p.surface.pwd = Metadata.cwd(of: p.surface.foregroundPID)

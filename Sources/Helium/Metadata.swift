@@ -124,14 +124,20 @@ enum Metadata {
         return stat(path, &st) == 0 ? st.st_rdev : nil
     }
 
-    /// TCP ports in LISTEN state owned by any process under the given ttys.
-    static func listeningPorts(ttys: [String], tree: ProcessTree) -> [Int] {
-        let devs = ttys.compactMap(ttyDevice)
-        var ports = Set<Int>()
-        for pid in tree.processes(onTTYs: devs) {
-            ports.formUnion(listeningPorts(pid: pid))
+    /// TCP ports in LISTEN state owned by any of these processes.
+    static func listeningPorts(_ pids: Set<pid_t>) -> [Int] {
+        Set(pids.flatMap(listeningPorts(pid:))).sorted()
+    }
+
+    /// Total physical footprint of these processes, the figure Activity Monitor shows as "Memory".
+    static func footprint(_ pids: Set<pid_t>) -> UInt64 {
+        pids.reduce(0) { sum, pid in
+            var info = rusage_info_v2()
+            let ok = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V2, $0) }
+            }
+            return ok == 0 ? sum + info.ri_phys_footprint : sum
         }
-        return ports.sorted()
     }
 
     static func listeningPorts(pid: pid_t) -> [Int] {

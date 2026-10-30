@@ -51,7 +51,7 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
 - **Two kinds of notification:** green (ring and a green right edge on the row; cleared by focusing the pane) for
   news, and orange (ring and an orange right edge; cleared only by typing in that pane) when an agent is blocked
   on the user. `Workspace.isWaitingForInput` decides by phrase. Sidebar rows are always two lines (title with
-  labels, cwd with ports) so every row is the same height; the notification text is the row's tooltip. The
+  labels, cwd with ports and memory footprint) so every row is the same height; the notification text is the row's tooltip. The
   selected tab's branch is shown in the titlebar strip above the terminal.
 - **Session restore:** on ⌘Q and every metadata poll, tabs, splits (with ratios), folders and running agents are
   saved to `state.json`; launch rebuilds them and types each agent's resume command via `initial_input`.

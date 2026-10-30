@@ -101,7 +101,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         guard !renaming, !popoverOpen, !dragging else { return }
         let models = workspaces.enumerated().map { index, ws in
             Row.Model(ws: ws, index: index + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
-                ports: ws.ports, notification: ws.notification, unread: ws.unread, waiting: ws.waiting,
+                ports: ws.ports, memory: ws.memory, notification: ws.notification, unread: ws.unread, waiting: ws.waiting,
                 working: ws.working, selected: ws === selected,
                 labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
         }
@@ -335,6 +335,7 @@ final class Row: NSView, NSTextFieldDelegate {
         let title: String
         let cwd: String?
         let ports: [Int]
+        var memory: UInt64 = 0
         let notification: String?
         let unread: Bool
         let waiting: Bool
@@ -350,6 +351,7 @@ final class Row: NSView, NSTextFieldDelegate {
     private let titleField = NSTextField(labelWithString: "")
     private let cwdField = Row.label("", .systemFont(ofSize: 11), .secondaryLabelColor, middle: true)
     private let portsField = Row.label("", .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen)
+    private let memoryField = Row.label("", .monospacedSystemFont(ofSize: 11, weight: .regular), .tertiaryLabelColor)
     private let shortcut = Row.label("", .systemFont(ofSize: 10), .tertiaryLabelColor)
     private let head = NSStackView()
     private let bar = NSView()
@@ -406,7 +408,8 @@ final class Row: NSView, NSTextFieldDelegate {
         // Always two lines so every row is the same height; the branch is in the titlebar strip and
         // the notification text is the tooltip.
         portsField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        let second = NSStackView(views: [cwdField, portsField])
+        memoryField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let second = NSStackView(views: [cwdField, portsField, memoryField])
         second.spacing = 6
         let lines: [NSView] = [head, second]
 
@@ -448,9 +451,10 @@ final class Row: NSView, NSTextFieldDelegate {
             titleField.font = .systemFont(ofSize: 13, weight: m.unread ? .bold : .medium)
         }
         if cwdField.stringValue != (m.cwd ?? "") { cwdField.stringValue = m.cwd ?? "" }
-        if previous.ports != m.ports || portsField.stringValue.isEmpty {
-            portsField.stringValue = m.ports.map { ":\($0)" }.joined(separator: " ")
-        }
+        let ports = m.ports.map { ":\($0)" }.joined(separator: " ")
+        if portsField.stringValue != ports { portsField.stringValue = ports }
+        let memory = m.memory > 0 ? ByteCountFormatter.string(fromByteCount: Int64(m.memory), countStyle: .memory) : ""
+        if memoryField.stringValue != memory { memoryField.stringValue = memory }
         let key = m.index <= 10 ? "⌘\(m.index % 10)" : ""
         if shortcut.stringValue != key { shortcut.stringValue = key }
         if toolTip != m.notification { toolTip = m.notification }

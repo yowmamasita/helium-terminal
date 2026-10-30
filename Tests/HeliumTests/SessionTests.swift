@@ -169,6 +169,12 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(AgentSession.shellQuote("a=b"), "a=b")
     }
 
+    func testFootprintSumsLiveProcessesAndSkipsDeadOnes() {
+        XCTAssertGreaterThan(Metadata.footprint([getpid()]), 0)
+        XCTAssertEqual(Metadata.footprint([999_999]), 0) // no such process
+        XCTAssertEqual(Metadata.footprint([]), 0)
+    }
+
     func testGitStatusParsingAndBranchLine() throws {
         let clean = Metadata.parseGitStatus("# branch.oid abc\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -1\n")
         XCTAssertEqual(clean, .init(ahead: 2, behind: 1, dirty: false))

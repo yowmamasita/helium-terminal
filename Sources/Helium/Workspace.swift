@@ -157,6 +157,7 @@ final class Workspace {
     /// Only kept for the selected tab (see Metadata.gitStatus).
     var gitStatus: Metadata.GitStatus?
     var ports: [Int] = []
+    var memory: UInt64 = 0
     var onChange: (() -> Void)?
 
     init() {
