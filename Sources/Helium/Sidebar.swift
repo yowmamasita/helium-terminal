@@ -398,6 +398,8 @@ final class Row: NSView, NSTextFieldDelegate {
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         head.addArrangedSubview(title)
         head.addArrangedSubview(NSView())
+        // Above the title's low resistance, or a long title can squeeze the hint to nothing.
+        shortcut.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         head.addArrangedSubview(shortcut)
         head.spacing = 6
 

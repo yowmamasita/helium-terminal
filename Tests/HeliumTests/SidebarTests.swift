@@ -39,6 +39,37 @@ final class SidebarTests: XCTestCase {
         print("row heights:", heights)
     }
 
+    func testLongTitlesNeverHideTheShortcutHint() throws {
+        // Just over the row's width: the case that squeezed hints while they tied with the title on resistance.
+        let titles = ["✳ Short title", "✳ A title of about forty characters long", "✳ Another title too long for the row",
+                      "✳ Thirty-three characters of title", "✳ A title that runs past the hint", "◑ A title that nearly fits now",
+                      "◑ A title slightly longer than that", "◐ A short title"]
+        let tabs = titles.map { title -> Workspace in
+            let ws = Workspace()
+            ws.customTitle = title
+            return ws
+        }
+        let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 900), styleMask: [.titled, .resizable],
+                              backing: .buffered, defer: true)
+        window.contentView?.addSubview(sidebar)
+        sidebar.update(tabs, selected: tabs[7])
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.frame.size.width = 229
+        sidebar.layoutSubtreeIfNeeded()
+
+        func hints(_ view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { sub in
+                (sub as? NSTextField).map { $0.stringValue.hasPrefix("⌘") ? [$0] : [] } ?? hints(sub)
+            }
+        }
+        let found = hints(sidebar)
+        XCTAssertEqual(found.map(\.stringValue), (1...8).map { "⌘\($0)" })
+        for hint in found {
+            XCTAssertGreaterThanOrEqual(hint.frame.width, hint.intrinsicContentSize.width, "\(hint.stringValue) squeezed")
+        }
+    }
+
     func testWaitingForInputIsRecognized() {
         // The idle reminder means the turn finished; it must not look like a blocked agent.
         XCTAssertTrue(Workspace.isIdleReminder("Claude Code: Claude is waiting for your input"))
