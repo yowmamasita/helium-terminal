@@ -33,6 +33,16 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
 
         addSubview(scroll)
 
+        // Every tab's footprint added up, at the right of the titlebar row beside the traffic lights.
+        total.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        total.textColor = .tertiaryLabelColor
+        total.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(total)
+        NSLayoutConstraint.activate([
+            total.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            total.centerYAnchor.constraint(equalTo: topAnchor, constant: 14),
+        ])
+
         update.bezelStyle = .accessoryBarAction
         update.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Update ready")
         update.imagePosition = .imageLeading
@@ -81,6 +91,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     var rowHeights: [CGFloat] { stack.arrangedSubviews.map(\.frame.height) }
 
     private let update = NSButton(title: "", target: nil, action: nil)
+    private let total = ClickThroughLabel(labelWithString: "")
     private var listToBottom: NSLayoutConstraint!
     private var listAboveUpdate: NSLayoutConstraint!
 
@@ -99,6 +110,9 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
     func update(_ workspaces: [Workspace], selected: Workspace?) {
         // Keep the field editor, popover anchor and lifted row intact until their interaction ends.
         guard !renaming, !popoverOpen, !dragging else { return }
+        let sum = workspaces.reduce(0) { $0 + $1.memory }
+        let text = sum > 0 ? ByteCountFormatter.string(fromByteCount: Int64(sum), countStyle: .memory) : ""
+        if total.stringValue != text { total.stringValue = text }
         let models = workspaces.enumerated().map { index, ws in
             Row.Model(ws: ws, index: index + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
                 ports: ws.ports, memory: ws.memory, notification: ws.notification, unread: ws.unread, waiting: ws.waiting,
