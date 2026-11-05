@@ -18,7 +18,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
 
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 4
+        stack.spacing = 2
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let scroll = NSScrollView()
@@ -475,12 +475,12 @@ final class Row: NSView, NSTextFieldDelegate {
         let v = NSStackView(views: lines)
         v.orientation = .vertical
         v.alignment = .leading
-        v.spacing = 2
+        v.spacing = 0
         v.translatesAutoresizingMaskIntoConstraints = false
         addSubview(v)
         NSLayoutConstraint.activate([
-            v.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            v.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            v.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            v.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
             v.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             v.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             head.widthAnchor.constraint(equalTo: v.widthAnchor),
