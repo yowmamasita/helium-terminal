@@ -120,7 +120,7 @@ final class Ghostty {
         case GHOSTTY_ACTION_QUIT:
             NSApp.terminate(nil)
         case GHOSTTY_ACTION_NEW_TAB, GHOSTTY_ACTION_NEW_WINDOW:
-            window.newWorkspace(inheriting: view)
+            if let g = window.selected?.group { window.newTab(in: g) } else { window.newWorkspace(inheriting: view) }
         case GHOSTTY_ACTION_NEW_SPLIT:
             guard let view else { return false }
             window.split(view, a.new_split)
