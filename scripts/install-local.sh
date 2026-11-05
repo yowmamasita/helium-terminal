@@ -4,7 +4,11 @@
 # going; the new build starts on its next launch.
 set -eu
 cd "$(dirname "$0")/.."
-scripts/build-app.sh
+# Sign with the Developer ID when there is one: an ad-hoc signature changes every build, so macOS
+# would treat each install as a new app and drop its privacy permissions.
+SIGN_IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)}
+[ -n "$SIGN_IDENTITY" ] || echo "warning: no Developer ID certificate, ad-hoc signing; macOS will ask for permissions again" >&2
+SIGN_IDENTITY="$SIGN_IDENTITY" scripts/build-app.sh
 DEST=/Applications
 [ -w "$DEST" ] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }
 APP="$DEST/Helium Terminal.app"
