@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds GhosttyKit.xcframework (libghostty) from vendor/ghostty. Needs Zig 0.16.0.
+# Builds GhosttyKit.xcframework (libghostty) from vendor/ghostty. Needs Zig 0.17.1.
 set -eu
 cd "$(dirname "$0")/.."
 REV=$(sed -n 's/^ghostty commit: //p' vendor.lock)

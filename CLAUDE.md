@@ -28,9 +28,6 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   scrolls fall short), and in mouse-reporting apps a wheel notch sends iTerm2's count of wheel reports (rounded
   OS delta, at least 1) without `mouse-scroll-multiplier`. Upstream multiplies, which makes Claude Code's
   fullscreen TUI jump.
-- **Display link patch:** upstream ffaaf5d7a, backported, starts and stops the CVDisplayLink only on the main
-  thread. Stopping it from the render thread could race CoreVideo's own display-change stop and hang the app
-  forever. Drop the patch once `vendor.lock` is at or past that commit.
 - **One stuck pane never freezes the app** (`patches/ghostty-pane-watchdog.patch` plus `MainWindow.checkRenderers`):
   on the main thread a full libghostty queue drops the message after 250 ms instead of waiting forever. The 3 s
   metadata poll pings every pane's renderer without blocking; two missed pings mark it hung ("Not responding:"
@@ -116,7 +113,7 @@ Publishing pushes only `gh-pages`, never main. Keep it free of cmux comparisons;
 ## Commands
 
 ```sh
-scripts/build-ghostty.sh               # libghostty (needs Zig 0.16.0); forces a SwiftPM relink
+scripts/build-ghostty.sh               # libghostty (needs Zig 0.17.1); forces a SwiftPM relink
 scripts/build-app.sh                   # build/Helium Terminal.app (SIGN_IDENTITY=... for Developer ID)
 scripts/install-local.sh               # build and copy to /Applications (Spotlight/Raycast find it there)
 swift test                             # unit tests

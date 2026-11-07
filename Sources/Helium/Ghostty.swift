@@ -55,6 +55,7 @@ final class Ghostty {
                 DispatchQueue.main.async { Ghostty.shared.window?.requestClose(view, processAlive: alive) }
             }
         )
+        guard let config else { return false }
         app = ghostty_app_new(&rt, config)
         setFocus(NSApp.isActive)
         return app != nil
@@ -89,7 +90,7 @@ final class Ghostty {
 
     private static func loadConfig() -> ghostty_config_t? {
         // Reads the user's Ghostty config, so themes, fonts and keybinds carry over.
-        let cfg = ghostty_config_new()
+        guard let cfg = ghostty_config_new() else { return nil }
         ghostty_config_load_file(cfg, defaultConfigPath)
         ghostty_config_load_default_files(cfg)
         ghostty_config_load_recursive_files(cfg)
@@ -112,7 +113,7 @@ final class Ghostty {
 
     private func handle(_ target: ghostty_target_s, _ action: ghostty_action_s) -> Bool {
         let view: SurfaceView? = target.tag == GHOSTTY_TARGET_SURFACE
-            ? SurfaceView.from(ghostty_surface_userdata(target.target.surface)) : nil
+            ? SurfaceView.from(target.target.surface.flatMap(ghostty_surface_userdata)) : nil
         guard let window else { return false }
         let a = action.action
 
@@ -140,8 +141,8 @@ final class Ghostty {
             guard let view else { return false }
             window.equalize(containing: view)
         case GHOSTTY_ACTION_SET_TITLE:
-            guard let view, let t = a.set_title.title else { return false }
-            let raw = String(cString: t)
+            guard let view else { return false }
+            let raw = String(cString: a.set_title.title)
             let previousPrefix = view.codexPrefix
             view.codexPrefix = CodexSessions.prefix(in: raw)
             view.title = CodexSessions.displayTitle(raw, prefix: view.codexPrefix)
@@ -150,14 +151,14 @@ final class Ghostty {
             }
             window.metadataChangedSoon()
         case GHOSTTY_ACTION_PWD:
-            guard let view, let p = a.pwd.pwd else { return false }
-            view.pwd = String(cString: p)
+            guard let view else { return false }
+            view.pwd = String(cString: a.pwd.pwd)
             window.metadataChangedSoon()
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let view else { return false }
             let n = a.desktop_notification
-            let title = n.title.map { String(cString: $0) } ?? ""
-            let body = n.body.map { String(cString: $0) } ?? ""
+            let title = String(cString: n.title)
+            let body = String(cString: n.body)
             window.notify(view, text: [title, body].filter { !$0.isEmpty }.joined(separator: ": "))
         case GHOSTTY_ACTION_RING_BELL:
             guard let view else { return false }
@@ -167,11 +168,10 @@ final class Ghostty {
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             guard let view else { return false }
             let link = a.mouse_over_link
-            view.pane?.hoveredLink = link.len > 0 && link.url != nil
+            view.pane?.hoveredLink = link.len > 0
                 ? String(data: Data(bytes: link.url, count: link.len), encoding: .utf8) : nil
         case GHOSTTY_ACTION_OPEN_URL:
-            guard let ptr = a.open_url.url else { return false }
-            let data = Data(bytes: ptr, count: Int(a.open_url.len))
+            let data = Data(bytes: a.open_url.url, count: Int(a.open_url.len))
             guard let s = String(data: data, encoding: .utf8), let url = URL(string: s) else { return false }
             NSWorkspace.shared.open(url)
         case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
@@ -189,12 +189,12 @@ final class Ghostty {
     // MARK: Clipboard (text/plain only; images and other MIME types are not served)
 
     private static func readClipboard(
-        _ ud: UnsafeMutableRawPointer?, _ loc: ghostty_clipboard_e, _ state: UnsafeMutableRawPointer?,
-        _ mimes: UnsafePointer<UnsafePointer<CChar>?>?, _ n: Int, _ list: Bool
+        _ ud: UnsafeMutableRawPointer?, _ loc: ghostty_clipboard_e, _ state: UnsafeMutableRawPointer,
+        _ mimes: UnsafePointer<UnsafePointer<CChar>>, _ n: Int, _ list: Bool
     ) -> ghostty_clipboard_read_result_e {
         guard loc == GHOSTTY_CLIPBOARD_STANDARD,
               let surface = SurfaceView.from(ud)?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
-        let wantsText = (0..<n).contains { i in mimes?[i].map { String(cString: $0) } == "text/plain" }
+        let wantsText = (0..<n).contains { i in String(cString: mimes[i]) == "text/plain" }
         let text = wantsText ? NSPasteboard.general.string(forType: .string) : nil
         if text == nil && !list { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
         complete(surface, text: text, available: list && NSPasteboard.general.string(forType: .string) != nil,
@@ -203,13 +203,14 @@ final class Ghostty {
     }
 
     static func confirmClipboard(
-        _ ud: UnsafeMutableRawPointer?, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
-        _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e
+        _ ud: UnsafeMutableRawPointer?, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>,
+        _ state: UnsafeMutableRawPointer, _ request: ghostty_clipboard_request_e
     ) {
         guard let view = SurfaceView.from(ud), let surface = view.surface else { return }
         // Copy the borrowed text now; the alert runs after this callback returns.
         var text: String?
-        if let c = confirm?.pointee, let contents = c.contents {
+        let c = confirm.pointee
+        if let contents = c.contents {
             for i in 0..<c.contents_len where String(cString: contents[i].mime) == "text/plain" {
                 text = String(data: Data(bytes: contents[i].data, count: contents[i].len), encoding: .utf8)
             }
@@ -248,13 +249,13 @@ final class Ghostty {
 
     private static func complete(
         _ surface: ghostty_surface_t, text: String?, available: Bool,
-        state: UnsafeMutableRawPointer?, confirmed: Bool
+        state: UnsafeMutableRawPointer, confirmed: Bool
     ) {
         let mime = strdup("text/plain")!
         let data = strdup(text ?? "")!
         defer { free(mime); free(data) }
         var content = ghostty_clipboard_content_s(mime: mime, data: data, len: strlen(data))
-        var avail: UnsafePointer<CChar>? = UnsafePointer(mime)
+        var avail = UnsafePointer(mime)
         withUnsafePointer(to: &content) { cp in
             withUnsafePointer(to: &avail) { ap in
                 var c = ghostty_clipboard_complete_s(

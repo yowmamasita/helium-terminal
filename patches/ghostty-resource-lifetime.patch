@@ -1,8 +1,8 @@
 diff --git a/src/App.zig b/src/App.zig
-index b484484a5..d35a28216 100644
+index b207c78ae..6c23886de 100644
 --- a/src/App.zig
 +++ b/src/App.zig
-@@ -146,6 +146,7 @@ pub fn deinit(self: *App) void {
+@@ -137,6 +137,7 @@ pub fn deinit(self: *App) void {
      // Clean up all our surfaces
      for (self.surfaces.items) |surface| surface.deinit();
      self.surfaces.deinit(self.alloc);
@@ -10,7 +10,7 @@ index b484484a5..d35a28216 100644
  
      // Clean up our font group cache
      // We should have zero items in the grid set at this point because
-@@ -533,11 +534,12 @@ fn surfaceMessage(self: *App, surface: *Surface, msg: apprt.surface.Message) !vo
+@@ -534,11 +535,12 @@ fn surfaceMessage(self: *App, surface: *Surface, msg: apprt.surface.Message) !vo
      // are quite rare and we normally don't have many windows so we do
      // a simple linear search here.
      if (self.hasSurface(surface)) {
@@ -24,7 +24,7 @@ index b484484a5..d35a28216 100644
  }
  
  fn hasSurface(self: *const App, surface: *const Surface) bool {
-@@ -579,6 +581,13 @@ pub const Message = union(enum) {
+@@ -580,6 +582,13 @@ pub const Message = union(enum) {
          message: apprt.surface.Message,
      },
  
@@ -38,7 +38,7 @@ index b484484a5..d35a28216 100644
      const NewWindow = struct {
          /// The parent surface
          parent: ?*Surface = null,
-@@ -603,6 +612,8 @@ pub const Mailbox = struct {
+@@ -604,6 +613,8 @@ pub const Mailbox = struct {
      /// Send a message to the surface.
      pub fn push(self: Mailbox, msg: Message, timeout: Queue.Timeout) Queue.Size {
          const result = self.mailbox.push(global.io(), msg, timeout);
@@ -48,23 +48,13 @@ index b484484a5..d35a28216 100644
          // Wake up our app loop
          self.rt_app.wakeup();
 diff --git a/src/Surface.zig b/src/Surface.zig
-index a2dcd9b28..bff634c52 100644
+index 7f7b1df88..fea2c0693 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -529,6 +529,9 @@ pub fn init(
-         &derived_config.font,
-         font_size,
-     );
-+    var initial_font_key = font_grid_key;
-+    var font_key_owner = &initial_font_key;
-+    errdefer app.font_grid_set.deref(font_key_owner.*);
- 
-     // Build our size struct which has all the sizes we need.
-     const size: rendererpkg.Size = size: {
-@@ -569,7 +572,9 @@ pub fn init(
-         .rt_surface = rt_surface,
-         .thread = &self.renderer_thread,
-     });
+@@ -587,7 +587,9 @@ pub fn init(
+             .thread = &self.renderer_thread,
+         });
+     };
 -    errdefer renderer_impl.deinit();
 +    var renderer_owner = &renderer_impl;
 +    var renderer_deinitialized = false;
@@ -72,7 +62,7 @@ index a2dcd9b28..bff634c52 100644
  
      // The mutex used to protect our renderer state.
      const mutex = try alloc.create(std.Io.Mutex);
-@@ -584,11 +589,17 @@ pub fn init(
+@@ -602,11 +604,17 @@ pub fn init(
          &self.renderer,
          &self.renderer_state,
      );
@@ -92,18 +82,17 @@ index a2dcd9b28..bff634c52 100644
  
      self.* = .{
          .id = id: {
-@@ -629,6 +640,10 @@ pub fn init(
+@@ -647,6 +655,9 @@ pub fn init(
          // lets us get the most likely correct color theme and so on.
          .config_conditional_state = app.config_conditional_state,
      };
 +    renderer_owner = &self.renderer;
 +    render_thread_owner = &self.renderer_thread;
-+    font_key_owner = &self.font_grid_key;
 +    io_thread_owner = &self.io_thread;
  
      // The command we're going to execute
      const command: ?configpkg.Command = command: {
-@@ -729,6 +744,10 @@ pub fn init(
+@@ -757,6 +768,10 @@ pub fn init(
          .{&self.renderer_thread},
      );
      self.renderer_thr.setName(global.io(), "renderer") catch {};
@@ -114,7 +103,7 @@ index a2dcd9b28..bff634c52 100644
  
      // Start our IO thread
      self.io_thr = try std.Thread.spawn(
-@@ -737,6 +756,10 @@ pub fn init(
+@@ -765,6 +780,10 @@ pub fn init(
          .{ &self.io_thread, &self.io },
      );
      self.io_thr.setName(global.io(), "io") catch {};
@@ -125,7 +114,7 @@ index a2dcd9b28..bff634c52 100644
  
      // Determine our initial window size if configured. We need to do this
      // quite late in the process because our height/width are in grid dimensions,
-@@ -1474,13 +1497,14 @@ fn searchCallback_(
+@@ -1502,13 +1521,14 @@ fn searchCallback_(
      switch (event) {
          .viewport_matches => |matches_unowned| {
              var arena: ArenaAllocator = .init(self.alloc);
@@ -142,7 +131,7 @@ index a2dcd9b28..bff634c52 100644
                  global.io(),
                  .{ .search_viewport_matches = .{
                      .arena = arena,
-@@ -1488,6 +1512,7 @@ fn searchCallback_(
+@@ -1516,6 +1536,7 @@ fn searchCallback_(
                  } },
                  .forever,
              );
@@ -150,7 +139,7 @@ index a2dcd9b28..bff634c52 100644
              try self.renderer_thread.wakeup.notify();
          },
  
-@@ -1495,11 +1520,12 @@ fn searchCallback_(
+@@ -1523,11 +1544,12 @@ fn searchCallback_(
              if (selected_) |sel| {
                  // Copy the flattened match.
                  var arena: ArenaAllocator = .init(self.alloc);
@@ -165,7 +154,7 @@ index a2dcd9b28..bff634c52 100644
                      global.io(),
                      .{ .search_selected_match = .{
                          .arena = arena,
-@@ -1507,6 +1533,7 @@ fn searchCallback_(
+@@ -1535,6 +1557,7 @@ fn searchCallback_(
                      } },
                      .forever,
                  );
@@ -173,7 +162,7 @@ index a2dcd9b28..bff634c52 100644
  
                  // Send the selected index to the surface mailbox
                  _ = self.surfaceMailbox().push(
-@@ -1839,22 +1866,25 @@ pub fn updateConfig(
+@@ -1867,22 +1890,25 @@ pub fn updateConfig(
          break :font_size size;
      });
  
@@ -215,7 +204,7 @@ index a2dcd9b28..bff634c52 100644
  
      // With mailbox messages sent, we have to wake them up so they process it.
      self.queueRender() catch |err| {
-@@ -2520,14 +2550,14 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+@@ -2554,14 +2580,14 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
  
      // Notify our render thread of the new font stack. The renderer
      // MUST accept the new font grid and deref the old.
@@ -232,7 +221,7 @@ index a2dcd9b28..bff634c52 100644
  
      // Once we've sent the key we can replace our key
      self.font_grid_key = font_grid_key;
-@@ -5100,7 +5130,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5134,7 +5160,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  break :search;
              }
  
@@ -242,10 +231,10 @@ index a2dcd9b28..bff634c52 100644
                  .{ .change_needle = try .init(
                      self.alloc,
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index b237c23cf..3c14d235c 100644
+index 548169bc1..c8231c21a 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
-@@ -881,6 +881,7 @@ pub const Surface = struct {
+@@ -883,6 +883,7 @@ pub const Surface = struct {
              raw_contents.len,
          ) catch |err| {
              log.err("error completing clipboard request err={}", .{err});
@@ -253,7 +242,7 @@ index b237c23cf..3c14d235c 100644
              alloc.destroy(state);
              return;
          };
-@@ -897,6 +898,7 @@ pub const Surface = struct {
+@@ -899,6 +900,7 @@ pub const Surface = struct {
              raw_available.len,
          ) catch |err| {
              log.err("error completing clipboard request err={}", .{err});
@@ -290,7 +279,7 @@ index 3b1a04d8a..7a2ddab71 100644
 +
 +test "discarded owned surface messages release their payloads" {
 +    const alloc = std.testing.allocator;
-+    const text: []const u8 = "x" ** 1024;
++    const text: []const u8 = &@as([1024]u8, @splat('x'));
 +    const pwd: Message = .{ .pwd_change = try Message.WriteReq.init(alloc, text) };
 +    pwd.deinit();
 +    const clipboard: Message = .{ .clipboard_write = .{
@@ -312,10 +301,10 @@ index 3b1a04d8a..7a2ddab71 100644
 +    }
 +}
 diff --git a/src/datastruct/blocking_queue.zig b/src/datastruct/blocking_queue.zig
-index 76d960a4b..2b036e418 100644
+index 89ce57d8c..e7fc73c82 100644
 --- a/src/datastruct/blocking_queue.zig
 +++ b/src/datastruct/blocking_queue.zig
-@@ -120,38 +120,28 @@ pub fn BlockingQueue(
+@@ -103,38 +103,28 @@ pub fn BlockingQueue(
              self.mutex.lockUncancelable(io);
              defer self.mutex.unlock(io);
  
@@ -374,7 +363,7 @@ index 76d960a4b..2b036e418 100644
              }
  
              // Add our data and update our accounting
-@@ -163,6 +153,14 @@ pub fn BlockingQueue(
+@@ -146,6 +136,14 @@ pub fn BlockingQueue(
              return self.len;
          }
  
@@ -389,7 +378,7 @@ index 76d960a4b..2b036e418 100644
          /// Pop a value from the queue without blocking.
          pub fn pop(self: *Self, io: std.Io) ?T {
              self.mutex.lockUncancelable(io);
-@@ -210,7 +208,7 @@ pub fn BlockingQueue(
+@@ -193,7 +191,7 @@ pub fn BlockingQueue(
  
              pub fn deinit(self: *DrainIterator, io: std.Io) void {
                  // If we have consumers waiting on a full queue, notify.
@@ -398,7 +387,7 @@ index 76d960a4b..2b036e418 100644
  
                  // Unlock
                  self.queue.mutex.unlock(io);
-@@ -276,3 +274,64 @@ test "timed push" {
+@@ -259,3 +257,64 @@ test "timed push" {
      // Timed push should fail
      try testing.expectEqual(@as(Q.Size, 0), q.push(io, 2, .{ .ns = 1000 }));
  }
@@ -464,10 +453,10 @@ index 76d960a4b..2b036e418 100644
 +    try testing.expectEqual(@as(Q.Size, 0), q.pushOwned(testing.io, message, .{ .ns = 1 }));
 +}
 diff --git a/src/renderer/Thread.zig b/src/renderer/Thread.zig
-index 34f00e892..4170bbe11 100644
+index 19d43f514..62c0bc1a6 100644
 --- a/src/renderer/Thread.zig
 +++ b/src/renderer/Thread.zig
-@@ -199,6 +199,7 @@ pub fn deinit(self: *Thread) void {
+@@ -185,6 +185,7 @@ pub fn deinit(self: *Thread) void {
      self.loop.deinit();
  
      // Nothing can possibly access the mailbox anymore, destroy it.
@@ -475,7 +464,7 @@ index 34f00e892..4170bbe11 100644
      self.mailbox.destroy(self.alloc);
  }
  
-@@ -421,7 +422,10 @@ fn drainMailbox(self: *Thread) !void {
+@@ -406,7 +407,10 @@ fn drainMailbox(self: *Thread) !void {
              .change_config => |config| {
                  defer config.alloc.destroy(config.thread);
                  defer config.alloc.destroy(config.impl);
@@ -487,7 +476,7 @@ index 34f00e892..4170bbe11 100644
  
                  // The config affects what animation wakes the
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index 5a021b087..c6503438b 100644
+index 8b44ba1af..b0c086f13 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -33,6 +33,23 @@ const getConstraint = @import("../font/nerd_font_attributes.zig").getConstraint;
@@ -511,10 +500,10 @@ index 5a021b087..c6503438b 100644
 +    }
 +}
 +
- const macos = switch (builtin.os.tag) {
+ const macos = switch (builtin.target.os.tag) {
      .macos => @import("macos"),
      else => void,
-@@ -314,11 +331,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -320,11 +337,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
  
              pub fn init(api: GraphicsAPI, custom_shaders: bool) !SwapChain {
                  var result: SwapChain = .{ .frames = undefined };
@@ -527,7 +516,7 @@ index 5a021b087..c6503438b 100644
  
                  return result;
              }
-@@ -704,6 +717,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -710,6 +723,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
          };
  
          pub fn init(alloc: Allocator, options: renderer.Options) !Self {
@@ -537,7 +526,7 @@ index 5a021b087..c6503438b 100644
              // Initialize our graphics API wrapper, this will prepare the
              // surface provided by the apprt and set up any API- and surface-
              // specific GPU resources.
-@@ -2158,6 +2174,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -2169,6 +2185,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
  
          /// Update the configuration.
          pub fn changeConfig(self: *Self, config: *DerivedConfig) !void {
@@ -546,7 +535,7 @@ index 5a021b087..c6503438b 100644
              self.draw_mutex.lockUncancelable(global.io());
              defer self.draw_mutex.unlock(global.io());
  
-@@ -2207,6 +2225,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -2218,6 +2236,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
  
              self.config.deinit();
              self.config = config.*;
@@ -554,7 +543,7 @@ index 5a021b087..c6503438b 100644
  
              // If our background image path changed, prepare the new bg image.
              if (bg_image_changed) try self.prepBackgroundImage();
-@@ -3680,3 +3699,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -3691,3 +3710,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
          }
      };
  }
@@ -650,7 +639,7 @@ index 16d3b32c6..669c281da 100644
 +    try std.testing.expectEqual(@as(usize, 0), set.count());
 +}
 diff --git a/src/renderer/metal/Target.zig b/src/renderer/metal/Target.zig
-index f20bb0b7c..437c6ca53 100644
+index cac831ed5..86b793004 100644
 --- a/src/renderer/metal/Target.zig
 +++ b/src/renderer/metal/Target.zig
 @@ -58,6 +58,7 @@ pub fn init(opts: Options) !Self {
@@ -662,7 +651,7 @@ index f20bb0b7c..437c6ca53 100644
      // Create our descriptor
      const desc = init: {
 diff --git a/src/terminal/search/Thread.zig b/src/terminal/search/Thread.zig
-index 0b7813219..88c5953d5 100644
+index cdf016a92..31b17f1e9 100644
 --- a/src/terminal/search/Thread.zig
 +++ b/src/terminal/search/Thread.zig
 @@ -121,6 +121,7 @@ pub fn deinit(self: *Thread) void {
@@ -688,7 +677,7 @@ index 0b7813219..88c5953d5 100644
  
  /// Events that can be emitted from the search thread. The caller
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 824c16c47..89ed42b92 100644
+index 49bd6e0cd..befdc6657 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -252,6 +252,8 @@ pub const DerivedConfig = struct {
@@ -701,10 +690,10 @@ index 824c16c47..89ed42b92 100644
      const default_modes: terminalpkg.ModePacked = modes: {
          var modes: terminalpkg.ModePacked = .{};
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index bc4f27ddc..340990bb9 100644
+index 6cc7010f2..1c735f926 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
-@@ -162,7 +162,7 @@ pub const StreamHandler = struct {
+@@ -164,7 +164,7 @@ pub const StreamHandler = struct {
          // See termio.Mailbox.send for more details on how this works.
  
          // Try instant first. If it works then we can return.
@@ -713,7 +702,7 @@ index bc4f27ddc..340990bb9 100644
              return;
          }
  
-@@ -180,7 +180,7 @@ pub const StreamHandler = struct {
+@@ -182,7 +182,7 @@ pub const StreamHandler = struct {
                  .{err},
              );
          };

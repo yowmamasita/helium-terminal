@@ -31,7 +31,7 @@ Both also install the `helium` command. Run `helium` with no arguments to open t
 
 ## Build from source
 
-Needs Xcode and Zig 0.16.0.
+Needs Xcode and Zig 0.17.1.
 
 ```sh
 scripts/build-ghostty.sh   # libghostty -> vendor/ghostty/macos/GhosttyKit.xcframework
