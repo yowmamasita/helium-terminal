@@ -255,7 +255,10 @@ final class Workspace {
         split.addArrangedSubview(after ? pane : new)
         split.addArrangedSubview(after ? new : pane)
         split.adjustSubviews()
-        Self.equalize(split)
+        // Equalize the whole run of same-direction splits, so a third column gets 1/3, not half of a half.
+        var top = split
+        while let p = top.superview as? NSSplitView, p.isVertical == split.isVertical { top = p }
+        Self.equalizeRun(top)
     }
 
     /// Removes `pane`, collapsing its split into the remaining sibling.
@@ -292,13 +295,32 @@ final class Workspace {
         walk(root)
     }
 
+    /// Equalizes `split` and its nested splits in the same direction.
+    static func equalizeRun(_ split: NSSplitView) {
+        equalize(split)
+        split.layoutSubtreeIfNeeded()
+        for case let s as NSSplitView in split.arrangedSubviews where s.isVertical == split.isVertical { equalizeRun(s) }
+    }
+
+    /// Panes a view holds along `vertical`'s axis; a split in the other direction counts as one.
+    private static func weight(_ v: NSView, _ vertical: Bool) -> CGFloat {
+        guard let s = v as? NSSplitView, s.isVertical == vertical else { return 1 }
+        return s.arrangedSubviews.reduce(0) { $0 + weight($1, vertical) }
+    }
+
+    /// Sizes children by weight, so the panes along this axis end up equal, however the splits nest.
     private static func equalize(_ split: NSSplitView) {
-        let n = split.arrangedSubviews.count
-        guard n > 1 else { return }
-        let total = split.isVertical ? split.bounds.width : split.bounds.height
-        let each = (total - split.dividerThickness * CGFloat(n - 1)) / CGFloat(n)
-        for i in 0..<(n - 1) {
-            split.setPosition(each * CGFloat(i + 1) + split.dividerThickness * CGFloat(i), ofDividerAt: i)
+        let views = split.arrangedSubviews
+        guard views.count > 1 else { return }
+        let weights = views.map { weight($0, split.isVertical) }
+        let sum = weights.reduce(0, +)
+        let total = (split.isVertical ? split.bounds.width : split.bounds.height)
+            - split.dividerThickness * CGFloat(views.count - 1)
+        var position: CGFloat = 0
+        for i in 0..<(views.count - 1) {
+            position += total * weights[i] / sum
+            split.setPosition(position, ofDividerAt: i)
+            position += split.dividerThickness
         }
     }
 
