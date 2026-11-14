@@ -744,7 +744,8 @@ final class Row: NSView, NSTextFieldDelegate {
         t.layer?.cornerRadius = 4
         t.layer?.masksToBounds = true
         t.lineBreakMode = .byTruncatingTail
-        t.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Just above the title's, so the title truncates first; a tie lets layout squeeze the chip to nothing.
+        t.setContentCompressionResistancePriority(.defaultLow + 1, for: .horizontal)
         return t
     }
     override func accessibilityPerformPress() -> Bool { onClick(); return true }

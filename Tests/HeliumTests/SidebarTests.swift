@@ -47,8 +47,11 @@ final class SidebarTests: XCTestCase {
         let tabs = titles.map { title -> Workspace in
             let ws = Workspace()
             ws.customTitle = title
+            ws.labels = ["pix6"]
             return ws
         }
+        defer { LabelStore.delete("pix6") }
+        LabelStore.save(TabLabel(name: "pix6", color: "Red"))
         let sidebar = SidebarView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 900), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: true)
@@ -67,6 +70,17 @@ final class SidebarTests: XCTestCase {
         XCTAssertEqual(found.map(\.stringValue), (1...8).map { "⌘\($0)" })
         for hint in found {
             XCTAssertGreaterThanOrEqual(hint.frame.width, hint.intrinsicContentSize.width, "\(hint.stringValue) squeezed")
+        }
+        // Labels tied with the title too, and a row could squeeze its chip to nothing.
+        func chips(_ view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { sub in
+                (sub as? NSTextField).map { $0.stringValue == " pix6 " ? [$0] : [] } ?? chips(sub)
+            }
+        }
+        let labels = chips(sidebar)
+        XCTAssertEqual(labels.count, 8)
+        for chip in labels {
+            XCTAssertGreaterThanOrEqual(chip.frame.width, chip.intrinsicContentSize.width, "chip squeezed")
         }
     }
 
