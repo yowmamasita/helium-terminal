@@ -33,12 +33,15 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
 
         addSubview(scroll)
 
-        // Every tab's footprint added up, at the right of the titlebar row beside the traffic lights.
+        // Tab count and every tab's footprint added up, at the right of the titlebar row beside the traffic lights.
         total.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         total.textColor = .tertiaryLabelColor
+        total.lineBreakMode = .byTruncatingHead // a narrow sidebar keeps the memory figure, not the count
+        total.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         total.translatesAutoresizingMaskIntoConstraints = false
         addSubview(total)
         NSLayoutConstraint.activate([
+            total.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 78), // clear of the traffic lights
             total.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             total.centerYAnchor.constraint(equalTo: topAnchor, constant: 14),
         ])
@@ -111,7 +114,8 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         // Keep the field editor, popover anchor and lifted row intact until their interaction ends.
         guard !renaming, !popoverOpen, !dragging else { return }
         let sum = workspaces.reduce(0) { $0 + $1.memory }
-        let text = sum > 0 ? ByteCountFormatter.string(fromByteCount: Int64(sum), countStyle: .memory) : ""
+        let tabs = workspaces.count == 1 ? "1 tab" : "\(workspaces.count) tabs"
+        let text = sum > 0 ? "\(tabs) · " + ByteCountFormatter.string(fromByteCount: Int64(sum), countStyle: .memory) : tabs
         if total.stringValue != text { total.stringValue = text }
         let models = workspaces.enumerated().map { index, ws in
             Row.Model(ws: ws, index: index + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
