@@ -153,6 +153,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "send":
             guard let p = target, let arg else { return ["ok": false, "error": "need an existing pane and text"] }
             p.surface.type(arg)
+        case "read":
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
+            guard let text = p.surface.text(scrollback: req["scrollback"] != nil) else {
+                return ["ok": false, "error": "that pane isn't responding"]
+            }
+            return ["ok": true, "text": text]
         case "queue":
             guard let p = target else { return ["ok": false, "error": "no such pane"] }
             guard let arg else { c.editQueue(p); break }

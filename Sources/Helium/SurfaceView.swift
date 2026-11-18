@@ -198,6 +198,22 @@ final class SurfaceView: NSView, NSTextInputClient {
         }
     }
 
+    /// The pane's text: the visible screen, or with `scrollback` everything still in its history.
+    /// Nil for a hung pane, whose terminal lock may never be released.
+    func text(scrollback: Bool) -> String? {
+        guard let surface, !hung else { return nil }
+        let tag = scrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
+        let all = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: false)
+        var out = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, all, &out) else { return "" } // an empty screen has nothing to select
+        defer { ghostty_surface_free_text(surface, &out) }
+        guard let p = out.text else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: p, count: Int(out.text_len)), as: UTF8.self)
+    }
+
     private func pressReturn() {
         guard let surface, !hung else { return }
         for action in [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE] {

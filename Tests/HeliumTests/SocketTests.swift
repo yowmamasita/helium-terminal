@@ -58,6 +58,9 @@ final class SocketTests: XCTestCase {
         let send = CLI.requestArguments(["send", "line\\nnext"])
         XCTAssertEqual(send?["arg"] as? String, "line\nnext")
         XCTAssertEqual(CLI.requestArguments(["queue", "line\\nnext"])?["arg"] as? String, "line\nnext")
+        let read = CLI.requestArguments(["read", "--scrollback", "--pane", "4"])
+        XCTAssertEqual(read?["scrollback"] as? Bool, true)
+        XCTAssertEqual(read?["pane"] as? String, "4") // the valueless flag mustn't swallow the next option
         XCTAssertNil(CLI.requestArguments(["--help"]))
     }
 

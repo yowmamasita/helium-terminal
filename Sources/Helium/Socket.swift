@@ -310,6 +310,7 @@ enum CLI {
       split [right|down] [--pane ID]         split a pane
       focus <pane>                           focus a pane
       send [--pane ID] <text>                type text ("\\n" presses Return)
+      read [--pane ID] [--scrollback]        print a pane's screen, or its whole history
       queue [--pane ID] [<text>]             send text to the pane's agent after its turn; no text opens the queue
       unqueue [--pane ID] [N]                cancel queued prompt N, or all of them
       notify [--pane ID] [--title T] <body>  ring a pane and set its tab's notification
@@ -329,6 +330,11 @@ enum CLI {
             let reply = try request(req)
             FileHandle.standardOutput.write(reply)
             let obj = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
+            // `read` prints the text itself, so it pipes into grep and friends.
+            if req["cmd"] as? String == "read", let text = obj?["text"] as? String {
+                print(text)
+                return 0
+            }
             return obj?["ok"] as? Bool == true ? 0 : 1
         } catch {
             FileHandle.standardError.write("helium: \(error.localizedDescription) (is Helium running?)\n".data(using: .utf8)!)
@@ -344,7 +350,10 @@ enum CLI {
         var i = 1
         while i < args.count {
             let a = args[i]
-            if a.hasPrefix("--"), i + 1 < args.count {
+            if a == "--scrollback" { // the one flag without a value
+                req["scrollback"] = true
+                i += 1
+            } else if a.hasPrefix("--"), i + 1 < args.count {
                 req[String(a.dropFirst(2))] = args[i + 1]
                 i += 2
             } else {

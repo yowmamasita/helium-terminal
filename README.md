@@ -221,6 +221,7 @@ helium new-tab [--cwd DIR] [--command CMD]
 helium select <tab>     helium focus <pane>
 helium split [right|down] [--pane ID]
 helium send [--pane ID] "make test\n"
+helium read [--pane ID] [--scrollback]       print a pane's screen, or its whole history
 helium queue [--pane ID] ["run the tests"]    send after the agent's turn; no text opens the queue
 helium unqueue [--pane ID] [N]               cancel queued prompt N, or all
 helium notify [--pane ID] [--title T] <body>
