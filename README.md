@@ -187,14 +187,14 @@ Besides the title spinners and notifications above, Helium reads the signals eac
 
 Hermes Agent's default line-mode CLI sends nothing unless its `display.bell_on_complete` is turned on.
 
-## Queued messages
+## Queued prompts
 
 Queue a prompt for a coding agent while it's busy, and Helium sends it when the turn ends. Queue several and
-they go one per turn. Press ⌘⇧M (Edit > Queue Message for Agent), right-click a tab, or run `helium queue`.
-The pane shows its queue at the bottom right; click it to edit or cancel messages. The tab shows the count.
+they go one per turn. Press ⌘⇧M (Edit > Queue Prompt for Agent), right-click a tab, or run `helium queue`.
+The pane shows its queue at the bottom right; click it to edit or cancel prompts. The tab shows the count.
 
-Helium holds the messages itself and pastes one into the agent once it's idle, so nothing depends on the
-agent's own queue. A message is never typed into a shell, into a permission prompt or question, or into a
+Helium holds the queued prompts itself and pastes one into the agent once it's idle, so nothing depends on the
+agent's own queue. A queued prompt is never typed into a shell, into a permission dialog or question, or into a
 pane that isn't responding. It waits there, and the queue popover says why. Queues aren't saved across a quit.
 
 | Agent | Sends |
@@ -203,7 +203,7 @@ pane that isn't responding. It waits there, and the queue popover says why. Queu
 | Codex 0.170 (tested) | when OSC 7501 reports idle, at once if already idle |
 | Copilot CLI, omp, OpenCode V2, MiniMax Code, Grok Build, Pi, Antigravity CLI, Kimi Code | the same, from their OSC 7501 reports |
 | Hermes Agent (`--tui`) | when its title shows ✓ |
-| Older Codex, OpenCode V1, ZCode, Cline | after a turn Helium saw end; a message queued while idle waits for the next turn |
+| Older Codex, OpenCode V1, ZCode, Cline | after a turn Helium saw end; a prompt queued while idle waits for the next turn |
 | Hermes Agent's line mode | only with Send Now: it reports no working state |
 | Anything else (a shell, Maka, dsh, mini-SWE-agent) | not offered: Helium doesn't recognize an agent there |
 
@@ -211,7 +211,7 @@ Only the two rows marked tested were run end to end; the others follow from the 
 (see below). An agent started through a wrapper that stays in the foreground (`script`, for example) gets no queue.
 
 Agents that report OSC 9;4 progress (Copilot, Kimi Code, Grok Build) count as working for 15 s after the last
-report, so their messages can go out that much later.
+report, so their prompts can go out that much later.
 
 ## CLI / socket API
 
@@ -222,7 +222,7 @@ helium select <tab>     helium focus <pane>
 helium split [right|down] [--pane ID]
 helium send [--pane ID] "make test\n"
 helium queue [--pane ID] ["run the tests"]    send after the agent's turn; no text opens the queue
-helium unqueue [--pane ID] [N]               cancel queued message N, or all
+helium unqueue [--pane ID] [N]               cancel queued prompt N, or all
 helium notify [--pane ID] [--title T] <body>
 helium close [--pane ID]
 ```

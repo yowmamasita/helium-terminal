@@ -72,9 +72,9 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   `regroup()` keeps its tabs contiguous. Selecting a tab expands its group. Closing a group's last tab asks
   "Close Tab and Delete Group?" only when the user closed it (`processExited` is false); a shell exiting just
   drops the group. Saved in `state.json` as optional `groups` and `tabGroups`.
-- **Queued messages (`MessageQueue.swift`):** `PaneView.queue` holds prompts for the pane's agent; `drainQueues`
+- **Queued prompts (`PromptQueue.swift`):** `PaneView.queue` holds prompts for the pane's agent; `drainQueues`
   runs after each metadata poll and pastes one (`SurfaceView.submit`: paste, then Return 0.2 s later) when
-  `MessageQueue.hold` returns nil. It never sends to a shell (the agent must own the terminal's foreground), to
+  `PromptQueue.hold` returns nil. It never sends to a shell (the agent must own the terminal's foreground), to
   a blocked agent (Claude's `waiting` status, OSC 7501 blocked, an "Action Required" title, or a needs-input
   notification, which sets `asked` even when the user is looking) or while the pane's queue popover is open.
   After a send, the next message waits until a turn has been seen. Not saved in `state.json`.

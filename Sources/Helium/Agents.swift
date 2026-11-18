@@ -39,7 +39,7 @@ struct AgentSession: Codable, Equatable {
     /// When Claude's status last moved to something other than "waiting" (blocked on a question or
     /// permission). An answer sent from elsewhere (the phone app) shows up here. Polled, not saved.
     var unblockedAt: Date?
-    /// Claude's own status word (busy, idle, waiting, shell), so a queued message can tell a finished turn
+    /// Claude's own status word (busy, idle, waiting, shell), so a queued prompt can tell a finished turn
     /// from a permission prompt. Polled, not saved.
     var status: String?
     /// omp resumes the exact journal, not a cwd-dependent session-ID prefix search.
@@ -317,7 +317,7 @@ enum Agents {
         }
     }
 
-    /// True when the agent, not a shell it was suspended under, owns the terminal: a queued message is typed
+    /// True when the agent, not a shell it was suspended under, owns the terminal: a queued prompt is typed
     /// only then. A launcher (npx, a wrapper script) may hold the foreground while its child is the agent.
     static func isForeground(_ agent: pid_t, foreground: pid_t, tree: ProcessTree) -> Bool {
         if tree.isAncestor(agent, of: foreground) { return true }

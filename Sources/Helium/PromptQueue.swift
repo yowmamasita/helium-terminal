@@ -4,11 +4,11 @@ import GhosttyKit
 /// Prompts held for a pane's coding agent and sent one per finished turn. Helium collects them itself and
 /// pastes each into the agent when its turn ends, so it works the same for every agent whose working and
 /// blocked states Helium can see.
-enum MessageQueue {
+enum PromptQueue {
     struct State: Equatable {
         /// A coding agent is the pane's foreground program; a queue never types into a shell.
         var agent = false
-        /// The agent the messages were queued for has exited and another one runs here now.
+        /// The agent the prompts were queued for has exited and another one runs here now.
         var replaced = false
         var hung = false
         var editing = false
@@ -17,15 +17,15 @@ enum MessageQueue {
         var busy = false
         /// The agent shows a permission prompt or a question, where typed text would answer it.
         var blocked = false
-        /// A turn was seen since the first message was queued or the last one was sent.
+        /// A turn was seen since the first prompt was queued or the last one was sent.
         var sawBusy = false
-        /// The agent itself reports being idle, so the first message needn't wait for a turn.
+        /// The agent itself reports being idle, so the first prompt needn't wait for a turn.
         var knownIdle = false
-        /// A message went out and no turn has been seen since: the idle report may predate it.
+        /// A prompt went out and no turn has been seen since: the idle report may predate it.
         var sent = false
     }
 
-    /// Why the next message can't go out yet, as shown in the editor; nil means send it now.
+    /// Why the next prompt can't go out yet, as shown in the editor; nil means send it now.
     static func hold(_ s: State) -> String? {
         if !s.agent { return "No coding agent is running in this pane." }
         if s.replaced { return "The agent these were queued for has exited." }
@@ -35,7 +35,7 @@ enum MessageQueue {
         if s.blocked { return "The agent is waiting for your answer." }
         if s.busy { return "Sends when the agent finishes." }
         if s.sawBusy { return nil }
-        if s.sent { return "Waiting for the agent to start on the last message." }
+        if s.sent { return "Waiting for the agent to start on the last prompt." }
         return s.knownIdle ? nil : "Sends after the agent's next turn."
     }
 }
@@ -44,18 +44,18 @@ extension MainWindowController {
     func enqueue(_ text: String, for pane: PaneView) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if pane.queue.isEmpty {
-            pane.queueSawBusy = false // an earlier turn doesn't count for this message
+            pane.queueSawBusy = false // an earlier turn doesn't count for this prompt
             pane.queueFor = pane.queueProcess
         }
         pane.queue.append(text)
     }
 
-    /// Sends each pane's next message once its agent is done. Only `refreshMetadata` calls this, right after
-    /// reading the agents' states: with older state, a message could land in a shell or a permission prompt.
+    /// Sends each pane's next prompt once its agent is done. Only `refreshMetadata` calls this, right after
+    /// reading the agents' states: with older state, a prompt could land in a shell or a permission dialog.
     func drainQueues() {
         for pane in workspaces.flatMap(\.panes) {
             if pane.queueState.busy { pane.noteBusy() }
-            if !pane.queue.isEmpty, MessageQueue.hold(pane.queueState) == nil { sendQueued(pane) }
+            if !pane.queue.isEmpty, PromptQueue.hold(pane.queueState) == nil { sendQueued(pane) }
         }
     }
 
@@ -67,8 +67,8 @@ extension MainWindowController {
         pane.surface.submit(text)
     }
 
-    /// Edit > Queue Message for Agent: the focused pane's queue.
-    @objc func queueMessage(_ sender: Any?) {
+    /// Edit > Queue Prompt for Agent: the focused pane's queue.
+    @objc func queuePrompt(_ sender: Any?) {
         if let pane = selected?.focusedPane { editQueue(pane) }
     }
 
@@ -100,7 +100,7 @@ private final class GrowingField: NSTextField {
     }
 }
 
-/// The queue popover: each queued message in an editable field with a remove button, and a field to add more.
+/// The queue popover: each queued prompt in an editable field with a remove button, and a field to add more.
 final class QueueEditor: NSViewController, NSTextFieldDelegate, NSPopoverDelegate {
     private let pane: PaneView
     private weak var controller: MainWindowController?
@@ -128,26 +128,26 @@ final class QueueEditor: NSViewController, NSTextFieldDelegate, NSPopoverDelegat
         return f
     }
 
-    /// Keeps the popover as tall as its fields while a message is typed.
+    /// Keeps the popover as tall as its fields while a prompt is typed.
     func controlTextDidChange(_ obj: Notification) {
         view.layoutSubtreeIfNeeded()
         preferredContentSize = view.fittingSize
     }
 
     override func loadView() {
-        let title = NSTextField(labelWithString: pane.queueAgent.map { "Queue for \($0.displayName)" } ?? "Message queue")
+        let title = NSTextField(labelWithString: pane.queueAgent.map { "Queue for \($0.displayName)" } ?? "Prompt queue")
         title.font = .boldSystemFont(ofSize: 12)
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = 6
-        draft.placeholderString = "Message to send when the agent finishes"
+        draft.placeholderString = "Prompt to send when the agent finishes"
         draft.delegate = self
         status.font = .systemFont(ofSize: 11)
         status.textColor = .secondaryLabelColor
         status.preferredMaxLayoutWidth = Self.width - 90
         sendNow.target = self
         sendNow.controlSize = .small
-        sendNow.toolTip = "Send the first message without waiting for the agent"
+        sendNow.toolTip = "Send the first prompt without waiting for the agent"
         let footer = NSStackView(views: [status, NSView(), sendNow])
 
         let stack = NSStackView(views: [title, list, draft, footer])
@@ -170,7 +170,7 @@ final class QueueEditor: NSViewController, NSTextFieldDelegate, NSPopoverDelegat
             let x = NSButton(title: "✕", target: self, action: #selector(remove(_:)))
             x.isBordered = false
             x.tag = i
-            x.setAccessibilityLabel("Cancel message \(i + 1)")
+            x.setAccessibilityLabel("Cancel prompt \(i + 1)")
             let row = NSStackView(views: [f, x])
             row.alignment = .top
             list.addArrangedSubview(row)
@@ -179,11 +179,11 @@ final class QueueEditor: NSViewController, NSTextFieldDelegate, NSPopoverDelegat
         list.isHidden = pane.queue.isEmpty
         var state = pane.queueState
         state.editing = false
-        let hold = MessageQueue.hold(state)
+        let hold = PromptQueue.hold(state)
         draft.isEnabled = state.agent
         sendNow.isEnabled = state.agent && !pane.queue.isEmpty
         status.stringValue = !state.agent ? hold ?? ""
-            : (hold ?? "Sends when you close this.") + " Return adds a message, Option-Return a new line."
+            : (hold ?? "Sends when you close this.") + " Return adds a prompt, Option-Return a new line."
         view.layoutSubtreeIfNeeded()
         preferredContentSize = view.fittingSize
     }
@@ -218,7 +218,7 @@ final class QueueEditor: NSViewController, NSTextFieldDelegate, NSPopoverDelegat
             controller?.enqueue(text, for: pane) // held while this popover is open
             reload()
         }
-        view.window?.makeFirstResponder(draft) // from a queued message, this ends and saves the edit
+        view.window?.makeFirstResponder(draft) // from a queued prompt, this ends and saves the edit
         return true
     }
 

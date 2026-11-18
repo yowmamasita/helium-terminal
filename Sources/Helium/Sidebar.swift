@@ -641,7 +641,7 @@ final class Row: NSView, NSTextFieldDelegate {
         if ws.customTitle != nil {
             menu.addItem(withTitle: "Use Automatic Title", action: #selector(clearTitle), keyEquivalent: "").target = self
         }
-        menu.addItem(withTitle: "Queue Message…", action: #selector(queueFromMenu), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Queue Prompt…", action: #selector(queueFromMenu), keyEquivalent: "").target = self
         menu.addItem(.separator())
         let labels = NSMenu()
         for l in LabelStore.all {

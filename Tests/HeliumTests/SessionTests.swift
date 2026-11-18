@@ -84,7 +84,7 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(session("idle")?.running, false)
         XCTAssertEqual(session(nil)?.running, false)
         XCTAssertEqual(session("shell")?.id, "abc")
-        XCTAssertEqual(session("waiting")?.status, "waiting") // what keeps a queued message out of a permission prompt
+        XCTAssertEqual(session("waiting")?.status, "waiting") // what keeps a queued prompt out of a permission prompt
         // Blocked on a question; once answered (anywhere) the status moves on and its time is reported.
         XCTAssertNil(session("waiting")!.unblockedAt)
         XCTAssertEqual(session("busy")?.unblockedAt, Date(timeIntervalSince1970: 1_791_951_251.478))

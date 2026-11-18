@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Queue Message for Agent…", action: #selector(MainWindowController.queueMessage(_:)),
+        editMenu.addItem(withTitle: "Queue Prompt for Agent…", action: #selector(MainWindowController.queuePrompt(_:)),
                          keyEquivalent: "M") // cmd+shift+m, through the responder chain to the window controller
         editItem.submenu = editMenu
 
@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "unqueue":
             guard let p = target else { return ["ok": false, "error": "no such pane"] }
             guard let arg else { p.queue = []; break }
-            guard let n = Int(arg), p.queue.indices.contains(n - 1) else { return ["ok": false, "error": "no such message"] }
+            guard let n = Int(arg), p.queue.indices.contains(n - 1) else { return ["ok": false, "error": "no such prompt"] }
             p.queue.remove(at: n - 1)
         case "notify":
             guard let p = target else { return ["ok": false, "error": "no such pane"] }

@@ -311,7 +311,7 @@ enum CLI {
       focus <pane>                           focus a pane
       send [--pane ID] <text>                type text ("\\n" presses Return)
       queue [--pane ID] [<text>]             send text to the pane's agent after its turn; no text opens the queue
-      unqueue [--pane ID] [N]                cancel queued message N, or all of them
+      unqueue [--pane ID] [N]                cancel queued prompt N, or all of them
       notify [--pane ID] [--title T] <body>  ring a pane and set its tab's notification
       close [--pane ID]                      close a pane
 

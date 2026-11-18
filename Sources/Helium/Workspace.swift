@@ -35,7 +35,7 @@ final class PaneView: NSView {
         ring.layer?.borderColor = (waiting ? Attention.waiting.color : Attention.news.color).cgColor
     }
 
-    // MARK: Queued messages (see MessageQueue)
+    // MARK: Queued prompts (see PromptQueue)
 
     /// Prompts to send to this pane's agent, one after each turn.
     var queue: [String] = [] {
@@ -48,10 +48,10 @@ final class PaneView: NSView {
     /// The agent in the foreground here at the last poll; nil for a shell or any other program.
     var queueAgent: AgentSession.Kind?
     var queueProcess: AgentProcess.Identity?
-    /// The agent process the current queue was started for; a different one never gets its messages.
+    /// The agent process the current queue was started for; a different one never gets its prompts.
     var queueFor: AgentProcess.Identity?
     private var typedAt = Date.distantPast
-    /// A turn was seen since the first message was queued or the last one was sent.
+    /// A turn was seen since the first prompt was queued or the last one was sent.
     var queueSawBusy = false
     /// A message went out and no turn has been seen since.
     var queueSent = false
@@ -77,13 +77,13 @@ final class PaneView: NSView {
         asked = false
     }
 
-    var queueState: MessageQueue.State {
+    var queueState: PromptQueue.State {
         let s = surface
         let status = agent?.status
         let reported = s.programStatusGroup == s.foregroundPID ? s.programStatus : nil
         // Claude's status is exact; "shell" is an idle Claude with a background shell, which takes prompts.
         let claude = agent?.kind == .claude && status != nil
-        return MessageQueue.State(
+        return PromptQueue.State(
             agent: queueAgent != nil, replaced: queueProcess != queueFor, hung: s.hung, editing: queuePopover != nil,
             typing: Date().timeIntervalSince(typedAt) < 5,
             busy: Workspace.isWorking(title: s.title) || s.reportsProgress || s.programWorking
