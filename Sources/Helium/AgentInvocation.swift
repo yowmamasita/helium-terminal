@@ -190,8 +190,8 @@ struct AgentInvocation {
                       "--system-prompt", "--agents", "--json-schema"]),
         // A Hermes resume whose policy flags (model, provider, toolsets…) differ from the session's is refused.
         .hermes: Replay(values: ["-p", "--profile"], switches: ["--tui", "--cli", "--native"],
-                        dropped: ["--resume", "-r", "--in", "-m", "--model", "--provider", "--reasoning", "-t", "--toolsets",
-                                  "-s", "--skills"]),
+                        dropped: ["--resume", "-r", "-c", "--continue", "--in", "-m", "--model", "--provider", "--reasoning",
+                                  "-t", "--toolsets", "-s", "--skills"]),
     ]
 
     /// Go's flag package (agy) treats `-model` like `--model`.
@@ -212,7 +212,8 @@ struct AgentInvocation {
             let name = name(argument, kind)
             i += 1
             guard !argument.contains("=") else { continue }
-            if r.values.contains(name) || r.dropped.contains(name) { i += 1 }
+            if r.values.contains(name) { i += 1 }
+            else if r.dropped.contains(name) { if i < args.count, !args[i].hasPrefix("-") { i += 1 } }
             else if r.optional.contains(name) || r.variadic.contains(name) {
                 while i < args.count, !args[i].hasPrefix("-") { i += 1 }
             }

@@ -112,8 +112,10 @@ session in a folder, so two panes running the same agent in one folder keep thei
 - Antigravity CLI: the conversation lock the process holds open, and its own log when several are open.
 - Grok Build: `~/.grok/active_sessions.json`, which records the owning pid. After `/new` the most recently
   opened session is taken; a switch in Grok's agent dashboard isn't visible until another session is opened.
+  Built from Grok's source; not yet tried against a signed-in Grok.
 - Hermes Agent: in `--tui` mode, the session file the TUI keeps for its parent. The default line-mode CLI runs
-  its sessions in a shared gateway process and keeps no per-pane record, so it isn't resumed.
+  its sessions in a shared gateway process and keeps no per-pane record, so it isn't resumed. Built from
+  Hermes' source; not yet tried against a running Hermes.
 
 With restore enabled, Helium installs an omp/Pi extension loader, OpenCode TUI plugins (V1 in `tui.json`,
 V2 as `plugins/helium-terminal/`), and a Kimi Code hook (a `[[hooks]]` table appended to `config.toml` and a

@@ -23,14 +23,8 @@ enum NativeSessions {
                 log = path
             }
         }
-        let id: String
-        if open.count == 1 {
-            id = open.keys.first!
-        } else {
-            guard open.count > 1, let log, let tail = tail(log),
-                  let last = lastMatch(in: tail, after: "] Registering foreground session: ", among: Set(open.keys)) else { return nil }
-            id = last
-        }
+        guard let id = choose(Set(open.keys), for: process.identity, log: log, after: "] Registering foreground session: ")
+        else { return nil }
         // A resumed session keeps its own folder while the process stays where it started.
         let cwd = (tail(open[id]!.appendingPathComponent("workspace.yaml").path, limit: 16 * 1024)).flatMap(yamlCwd)
         return session(.copilot, id, process, cwd: cwd)
@@ -52,14 +46,7 @@ enum NativeSessions {
                 log = path
             }
         }
-        let id: String
-        if open.count == 1 {
-            id = open.first!
-        } else {
-            guard open.count > 1, let log, let tail = tail(log),
-                  let last = lastMatch(in: tail, after: "conversation ", among: open) else { return nil }
-            id = last
-        }
+        guard let id = choose(open, for: process.identity, log: log, after: "conversation ") else { return nil }
         return session(.agy, id, process, cwd: nil)
     }
 
@@ -96,6 +83,24 @@ enum NativeSessions {
             return session(.hermes, id, process, cwd: nil)
         }
         return nil
+    }
+
+    /// Main thread only, like the metadata poll.
+    private static var chosen: [AgentProcess.Identity: String] = [:]
+
+    /// One open session is the answer. With several, the last switch in the process's own log decides; a tie broken
+    /// once stays broken while that session is open, after its log line has scrolled out of the tail.
+    static func choose(_ open: Set<String>, for identity: AgentProcess.Identity, log: String?, after marker: String) -> String? {
+        var id: String?
+        if open.count == 1 {
+            id = open.first
+        } else if open.count > 1 {
+            id = log.flatMap { tail($0) }.flatMap { lastMatch(in: $0, after: marker, among: open) }
+                ?? chosen[identity].flatMap { open.contains($0) ? $0 : nil }
+        }
+        if chosen.count > 64 { chosen = chosen.filter { AgentProcess.identity($0.key.pid) == $0.key } }
+        chosen[identity] = id
+        return id
     }
 
     /// `YYYYMMDD_HHMMSS_<6 hex>`.

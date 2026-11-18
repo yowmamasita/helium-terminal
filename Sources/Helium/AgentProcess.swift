@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 struct AgentProcess {
-    struct Identity: Equatable {
+    struct Identity: Hashable {
         let pid: pid_t
         let seconds: UInt64
         let microseconds: UInt64

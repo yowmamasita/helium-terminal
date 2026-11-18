@@ -142,6 +142,23 @@ final class MoreAgentsTests: XCTestCase {
         XCTAssertNil(NativeSessions.yamlCwd("cwd: \"/a\\\"b\"\n"))
     }
 
+    func testABrokenTieOutlivesItsLogLine() throws {
+        let a = "7eaa1ea6-5eee-4973-8af5-5c3ca1e62e89", b = "ffa6a56c-c744-485f-870f-4068abe8876f"
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("helium-log-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: log) }
+        let me = try XCTUnwrap(AgentProcess.identity(ProcessInfo.processInfo.processIdentifier))
+        let marker = "] Registering foreground session: "
+        try Data("[INFO] Registering foreground session: \(b)\n".utf8).write(to: log)
+        XCTAssertEqual(NativeSessions.choose([a, b], for: me, log: log.path, after: marker), b)
+        // A long session pushes the switch out of the tail Helium reads; the answer must not drop to nothing.
+        try Data(String(repeating: "x", count: 300 * 1024).utf8).write(to: log)
+        XCTAssertEqual(NativeSessions.choose([a, b], for: me, log: log.path, after: marker), b)
+        XCTAssertNil(NativeSessions.choose([a, "00000000-0000-0000-0000-000000000000"], for: me, log: log.path, after: marker))
+        XCTAssertEqual(NativeSessions.choose([a], for: me, log: nil, after: marker), a)
+        XCTAssertTrue(try XCTUnwrap(AgentInvocation(["/x/python3", "/x/bin/hermes", "-c", "my-session", "--tui"])).interactive)
+        XCTAssertEqual(AgentSession.resumableFlags(.hermes, ["-c", "my-session", "--tui"]), ["--tui"])
+    }
+
     func testKimiHookIsAppendedOnceAndNeverClobbersInlineHooks() throws {
         let command = "exec /bin/sh '/Users/a b/.kimi-code/helium-terminal-hook.sh' kimi"
         let base = "default_model = \"k2\"\n\n[providers.k]\ntype = \"openai\""
