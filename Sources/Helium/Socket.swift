@@ -310,6 +310,8 @@ enum CLI {
       split [right|down] [--pane ID]         split a pane
       focus <pane>                           focus a pane
       send [--pane ID] <text>                type text ("\\n" presses Return)
+      queue [--pane ID] [<text>]             send text to the pane's agent after its turn; no text opens the queue
+      unqueue [--pane ID] [N]                cancel queued message N, or all of them
       notify [--pane ID] [--title T] <body>  ring a pane and set its tab's notification
       close [--pane ID]                      close a pane
 
@@ -352,8 +354,8 @@ enum CLI {
         }
         if !positional.isEmpty {
             let value = positional.joined(separator: " ")
-            // Shells pass "\n" literally; only `send` treats it as a Return key.
-            req["arg"] = cmd == "send" ? value.replacingOccurrences(of: "\\n", with: "\n") : value
+            // Shells pass "\n" literally; `send` treats it as a Return key and `queue` as a line break.
+            req["arg"] = cmd == "send" || cmd == "queue" ? value.replacingOccurrences(of: "\\n", with: "\n") : value
         }
         if req["pane"] == nil, let p = ProcessInfo.processInfo.environment["HELIUM_PANE"] { req["pane"] = p }
         return req

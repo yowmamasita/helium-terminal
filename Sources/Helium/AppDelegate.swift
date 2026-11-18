@@ -87,6 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Queue Message for Agent…", action: #selector(MainWindowController.queueMessage(_:)),
+                         keyEquivalent: "M") // cmd+shift+m, through the responder chain to the window controller
         editItem.submenu = editMenu
 
         let winItem = NSMenuItem()
@@ -120,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     "panes": ws.panes.map { p in
                         ["id": p.surface.id, "title": p.surface.title, "cwd": p.surface.pwd ?? NSNull(),
                          "focused": p === ws.focusedPane, "ringing": p.ringing, "waiting": p.waiting,
+                         "queue": p.queue, "agent": p.queueAgent?.rawValue ?? NSNull(),
                          "hung": p.surface.hung] as [String: Any]
                     },
                 ] as [String: Any]
@@ -149,6 +153,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "send":
             guard let p = target, let arg else { return ["ok": false, "error": "need an existing pane and text"] }
             p.surface.type(arg)
+        case "queue":
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
+            guard let arg else { c.editQueue(p); break }
+            // Refused rather than held forever: nothing would ever send it.
+            guard p.queueAgent != nil else { return ["ok": false, "error": "no coding agent is running in that pane"] }
+            c.enqueue(arg, for: p)
+            c.refreshMetadata() // sends at once to an idle agent, from freshly read state
+            return ["ok": true, "queued": p.queue.count]
+        case "unqueue":
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
+            guard let arg else { p.queue = []; break }
+            guard let n = Int(arg), p.queue.indices.contains(n - 1) else { return ["ok": false, "error": "no such message"] }
+            p.queue.remove(at: n - 1)
         case "notify":
             guard let p = target else { return ["ok": false, "error": "no such pane"] }
             let text = [req["title"] as? String, arg].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ": ")

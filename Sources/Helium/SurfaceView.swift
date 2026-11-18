@@ -193,16 +193,27 @@ final class SurfaceView: NSView, NSTextInputClient {
     func type(_ text: String) {
         guard let surface else { return }
         for (i, line) in text.components(separatedBy: "\n").enumerated() {
-            if i > 0 {
-                for action in [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE] {
-                    var ev = ghostty_input_key_s()
-                    ev.action = action
-                    ev.keycode = 0x24 // kVK_Return
-                    _ = ghostty_surface_key(surface, ev)
-                }
-            }
+            if i > 0 { pressReturn() }
             if !line.isEmpty { _ = committedText(line) }
         }
+    }
+
+    private func pressReturn() {
+        guard let surface, !hung else { return }
+        for action in [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE] {
+            var ev = ghostty_input_key_s()
+            ev.action = action
+            ev.keycode = 0x24 // kVK_Return
+            _ = ghostty_surface_key(surface, ev)
+        }
+    }
+
+    /// Sends `text` to an agent as one prompt: pasted, so its newlines stay inside the prompt, then Return.
+    func submit(_ text: String) {
+        guard let surface, !hung else { return }
+        text.withCString { ghostty_surface_text(surface, $0, UInt(strlen($0))) }
+        // Agents take a Return that arrives with a paste as part of it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.pressReturn() }
     }
 
     // MARK: Layout and focus

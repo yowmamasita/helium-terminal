@@ -57,6 +57,7 @@ final class SocketTests: XCTestCase {
         XCTAssertEqual(notify?["arg"] as? String, "line\\nnext")
         let send = CLI.requestArguments(["send", "line\\nnext"])
         XCTAssertEqual(send?["arg"] as? String, "line\nnext")
+        XCTAssertEqual(CLI.requestArguments(["queue", "line\\nnext"])?["arg"] as? String, "line\nnext")
         XCTAssertNil(CLI.requestArguments(["--help"]))
     }
 

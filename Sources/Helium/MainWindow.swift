@@ -228,6 +228,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         guard let pane = view.pane, let ws = pane.workspace else { return }
         let looking = NSApp.isActive && window?.isKeyWindow == true && window?.firstResponder === view
         if let text, Workspace.isWaitingForInput(text) {
+            pane.asked = true
             if !looking { pane.waiting = true }
         } else {
             if let text, Workspace.isIdleReminder(text) {
@@ -258,6 +259,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         if asks, !asked { notify(view, text: "needs your input") }
         if !asks, asked { view.pane?.waiting = false }
         if old.hasPrefix("\u{23F3}"), view.title.hasPrefix("\u{2713}") { notify(view, text: nil) }
+        if Workspace.isWorking(title: view.title) { view.pane?.noteBusy() } // a turn shorter than the poll still counts
     }
 
     /// OSC 7501 (Program Status Protocol), sent by Pi, omp, OpenCode V2, MiniMax Code, Grok Build and others.
@@ -268,6 +270,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         let previous = view.programStatus
         view.programStatus = state
         view.programStatusGroup = view.foregroundPID
+        if state == GHOSTTY_PROGRAM_STATUS_WORKING { view.pane?.noteBusy() }
         if state == GHOSTTY_PROGRAM_STATUS_BLOCKED {
             if previous != state { notify(view, text: "needs your input") }
             return
@@ -338,6 +341,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             }
         }
         refreshAgents(tree)
+        drainQueues()
         refreshGitStatus()
         metadataChanged()
         saveState()
@@ -401,10 +405,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
         var codex: [String: [Request]] = [:]
         for pane in workspaces.flatMap(\.panes) {
+            pane.queueAgent = nil
+            pane.queueProcess = nil
             guard let tty = pane.surface.ttyName, let dev = Metadata.ttyDevice(tty) else { continue }
             let snapshot = Agents.snapshot(onTTY: dev, tree: tree, foregroundPID: pane.surface.foregroundPID,
                                            directory: pane.surface.agentStateDirectory, token: pane.surface.agentToken,
                                            ttyName: tty)
+            if let process = snapshot.process,
+               Agents.isForeground(process.identity.pid, foreground: pane.surface.foregroundPID, tree: tree) {
+                pane.queueAgent = process.invocation.kind
+                pane.queueProcess = process.identity
+            }
             guard let process = snapshot.process else {
                 if !pane.awaitingAgentStart { pane.agent = nil }
                 pane.codexProcess = nil

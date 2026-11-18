@@ -35,8 +35,90 @@ final class PaneView: NSView {
         ring.layer?.borderColor = (waiting ? Attention.waiting.color : Attention.news.color).cgColor
     }
 
+    // MARK: Queued messages (see MessageQueue)
+
+    /// Prompts to send to this pane's agent, one after each turn.
+    var queue: [String] = [] {
+        didSet {
+            guard queue != oldValue else { return }
+            updateQueueChip()
+            workspace?.onChange?()
+        }
+    }
+    /// The agent in the foreground here at the last poll; nil for a shell or any other program.
+    var queueAgent: AgentSession.Kind?
+    var queueProcess: AgentProcess.Identity?
+    /// The agent process the current queue was started for; a different one never gets its messages.
+    var queueFor: AgentProcess.Identity?
+    private var typedAt = Date.distantPast
+    /// A turn was seen since the first message was queued or the last one was sent.
+    var queueSawBusy = false
+    /// A message went out and no turn has been seen since.
+    var queueSent = false
+    /// A "needs your input" notification arrived, whether or not the user was looking (`waiting` isn't set then).
+    var asked = false
+    /// The editor popover; nothing is sent while it's open.
+    var queuePopover: NSPopover?
+    private lazy var queueChip: NSButton = {
+        let b = NSButton(title: "", target: self, action: #selector(openQueue))
+        b.bezelStyle = .inline
+        b.font = .systemFont(ofSize: 11)
+        b.lineBreakMode = .byTruncatingTail
+        b.isHidden = true
+        addSubview(b)
+        return b
+    }()
+
+    @objc private func openQueue() { Ghostty.shared.window?.editQueue(self) }
+
+    func noteBusy() {
+        queueSawBusy = true
+        queueSent = false
+        asked = false
+    }
+
+    var queueState: MessageQueue.State {
+        let s = surface
+        let status = agent?.status
+        let reported = s.programStatusGroup == s.foregroundPID ? s.programStatus : nil
+        // Claude's status is exact; "shell" is an idle Claude with a background shell, which takes prompts.
+        let claude = agent?.kind == .claude && status != nil
+        return MessageQueue.State(
+            agent: queueAgent != nil, replaced: queueProcess != queueFor, hung: s.hung, editing: queuePopover != nil,
+            typing: Date().timeIntervalSince(typedAt) < 5,
+            busy: Workspace.isWorking(title: s.title) || s.reportsProgress || s.programWorking
+                || (claude ? status == "busy" : agent?.running == true),
+            blocked: claude ? status == "waiting"
+                : asked || waiting || reported == GHOSTTY_PROGRAM_STATUS_BLOCKED
+                    || Workspace.titleAsksForInput(s.title) || agent?.blocked == true,
+            sawBusy: queueSawBusy,
+            knownIdle: claude ? status == "idle" || status == "shell"
+                : reported == GHOSTTY_PROGRAM_STATUS_IDLE || reported == GHOSTTY_PROGRAM_STATUS_DONE
+                    || reported == GHOSTTY_PROGRAM_STATUS_ERROR || s.title.hasPrefix("\u{2713}"),
+            sent: queueSent)
+    }
+
+    private func updateQueueChip() {
+        queueChip.isHidden = queue.isEmpty
+        guard let first = queue.first else { return }
+        let line = first.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        queueChip.title = "\(queue.count) queued: \(line)"
+        queueChip.toolTip = queue.enumerated().map { "\($0 + 1). \($1)" }.joined(separator: "\n")
+        layoutQueueChip()
+    }
+
+    private func layoutQueueChip() {
+        guard !queue.isEmpty else { return }
+        let size = queueChip.intrinsicContentSize
+        let width = max(min(size.width, bounds.width - 12), 0)
+        queueChip.frame = NSRect(x: bounds.maxX - width - 6, y: 6, width: width, height: size.height)
+    }
+
     func userTyped() {
         awaitingAgentStart = false
+        typedAt = Date()
+        asked = false
+        queueSent = false // the user took over; don't keep waiting for a turn that a command like /clear never starts
         guard waiting else { return }
         waiting = false
         workspace?.onChange?()
@@ -86,6 +168,7 @@ final class PaneView: NSView {
         surface.frame = bounds
         ring.frame = bounds
         layoutLinkPreview()
+        layoutQueueChip()
     }
 
     func focusChanged(_ surface: SurfaceView) {

@@ -39,6 +39,9 @@ struct AgentSession: Codable, Equatable {
     /// When Claude's status last moved to something other than "waiting" (blocked on a question or
     /// permission). An answer sent from elsewhere (the phone app) shows up here. Polled, not saved.
     var unblockedAt: Date?
+    /// Claude's own status word (busy, idle, waiting, shell), so a queued message can tell a finished turn
+    /// from a permission prompt. Polled, not saved.
+    var status: String?
     /// omp resumes the exact journal, not a cwd-dependent session-ID prefix search.
     var sessionFile: String?
     /// Only non-secret configuration/data-location overrides are saved.
@@ -288,6 +291,7 @@ enum Agents {
                             session: AgentSession(kind: .claude, sessionID: metadata.id, cwd: Metadata.cwd(of: process.identity.pid),
                                                   flags: AgentSession.resumableFlags(.claude, process.invocation.arguments),
                                                   running: metadata.running, unblockedAt: metadata.unblockedAt,
+                                                  status: metadata.status,
                                                   environment: process.environment.isEmpty ? nil : process.environment,
                                                   command: process.command))
         case .omp:
@@ -313,23 +317,37 @@ enum Agents {
         }
     }
 
+    /// True when the agent, not a shell it was suspended under, owns the terminal: a queued message is typed
+    /// only then. A launcher (npx, a wrapper script) may hold the foreground while its child is the agent.
+    static func isForeground(_ agent: pid_t, foreground: pid_t, tree: ProcessTree) -> Bool {
+        if tree.isAncestor(agent, of: foreground) { return true }
+        var next = tree.parent[agent]
+        var seen = Set<pid_t>()
+        while let pid = next, pid > 1, seen.insert(pid).inserted,
+              AgentProcess.read(pid)?.invocation.isLauncher == true {
+            if pid == foreground { return true }
+            next = tree.parent[pid]
+        }
+        return false
+    }
+
     /// Claude Code records each interactive session in ~/.claude/sessions/<pid>.json (undocumented;
     /// read defensively and ignored if the format changes).
-    static func claudeSession(pid: pid_t) -> (id: String, running: Bool, unblockedAt: Date?)? {
+    static func claudeSession(pid: pid_t) -> (id: String, running: Bool, unblockedAt: Date?, status: String?)? {
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/sessions/\(pid).json")
         return (try? Data(contentsOf: url)).flatMap { claudeSession($0, pid: pid) }
     }
 
     /// `running` is a status of "busy" (a turn) or "shell" (idle, with a background shell or monitor),
     /// the two that Claude's own session list counts as live.
-    static func claudeSession(_ data: Data, pid: pid_t) -> (id: String, running: Bool, unblockedAt: Date?)? {
+    static func claudeSession(_ data: Data, pid: pid_t) -> (id: String, running: Bool, unblockedAt: Date?, status: String?)? {
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               obj["kind"] as? String ?? "interactive" == "interactive",
               (obj["pid"] as? Int).map({ $0 == Int(pid) }) ?? true, // a leftover file from a reused pid
               let id = obj["sessionId"] as? String, !id.isEmpty else { return nil }
         let status = obj["status"] as? String
         let changed = (obj["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-        return (id, ["busy", "shell"].contains(status), status == "waiting" ? nil : changed)
+        return (id, ["busy", "shell"].contains(status), status == "waiting" ? nil : changed, status)
     }
 
 

@@ -120,7 +120,7 @@ final class SidebarView: NSVisualEffectView, NSPopoverDelegate {
         let models = workspaces.enumerated().map { index, ws in
             Row.Model(ws: ws, index: index + 1, title: ws.title, cwd: ws.cwd.map(Self.abbreviate),
                 ports: ws.ports, memory: ws.memory, notification: ws.notification, unread: ws.unread, waiting: ws.waiting,
-                working: ws.working, selected: ws === selected,
+                working: ws.working, selected: ws === selected, queued: ws.panes.flatMap(\.queue),
                 labels: ws.labels.compactMap(LabelStore.label(named:)), group: ws.group)
         }
         var summaries: [String: GroupHeader.Model] = [:]
@@ -404,6 +404,7 @@ final class Row: NSView, NSTextFieldDelegate {
         let waiting: Bool
         let working: Bool
         let selected: Bool
+        var queued: [String] = []
         let labels: [TabLabel]
         let group: TabGroup?
 
@@ -414,6 +415,7 @@ final class Row: NSView, NSTextFieldDelegate {
     private let titleField = NSTextField(labelWithString: "")
     private let cwdField = Row.label("", .systemFont(ofSize: 11), .secondaryLabelColor, middle: true)
     private let portsField = Row.label("", .monospacedSystemFont(ofSize: 11, weight: .regular), .systemGreen)
+    private let queueField = Row.label("", .systemFont(ofSize: 11), .controlAccentColor)
     private let memoryField = Row.label("", .monospacedSystemFont(ofSize: 11, weight: .regular), .tertiaryLabelColor)
     private let shortcut = Row.label("", .systemFont(ofSize: 10), .tertiaryLabelColor)
     private let head = NSStackView()
@@ -472,7 +474,8 @@ final class Row: NSView, NSTextFieldDelegate {
         // the notification text is the tooltip.
         portsField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         memoryField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        let second = NSStackView(views: [cwdField, portsField, memoryField])
+        queueField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let second = NSStackView(views: [cwdField, queueField, portsField, memoryField])
         second.spacing = 6
         let lines: [NSView] = [head, second]
 
@@ -520,7 +523,10 @@ final class Row: NSView, NSTextFieldDelegate {
         if memoryField.stringValue != memory { memoryField.stringValue = memory }
         let key = m.index <= 10 ? "⌘\(m.index % 10)" : ""
         if shortcut.stringValue != key { shortcut.stringValue = key }
-        if toolTip != m.notification { toolTip = m.notification }
+        let queue = m.queued.isEmpty ? "" : "\(m.queued.count) queued"
+        if queueField.stringValue != queue { queueField.stringValue = queue }
+        let tip = ([m.notification].compactMap { $0 } + m.queued.map { "Queued: \($0)" }).joined(separator: "\n")
+        if toolTip ?? "" != tip { toolTip = tip.isEmpty ? nil : tip }
         while chips.count > m.labels.count { chips.removeLast().removeFromSuperview() }
         for (index, label) in m.labels.enumerated() {
             if index == chips.count {
@@ -635,6 +641,7 @@ final class Row: NSView, NSTextFieldDelegate {
         if ws.customTitle != nil {
             menu.addItem(withTitle: "Use Automatic Title", action: #selector(clearTitle), keyEquivalent: "").target = self
         }
+        menu.addItem(withTitle: "Queue Message…", action: #selector(queueFromMenu), keyEquivalent: "").target = self
         menu.addItem(.separator())
         let labels = NSMenu()
         for l in LabelStore.all {
@@ -678,6 +685,7 @@ final class Row: NSView, NSTextFieldDelegate {
     }
 
     @objc private func renameFromMenu() { sidebar?.rename(ws) }
+    @objc private func queueFromMenu() { if let p = ws.focusedPane { Ghostty.shared.window?.editQueue(p) } }
     @objc private func addToNewGroup() { actions?.addToNewGroup(ws) }
     @objc private func removeFromGroup() { actions?.removeFromGroup(ws) }
 

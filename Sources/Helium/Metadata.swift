@@ -28,6 +28,17 @@ struct ProcessTree {
         }
     }
 
+    /// True when `pid` is `child` or one of its ancestors.
+    func isAncestor(_ pid: pid_t, of child: pid_t) -> Bool {
+        var next: pid_t? = child
+        var seen = Set<pid_t>()
+        while let p = next, p > 1, seen.insert(p).inserted {
+            if p == pid { return true }
+            next = parent[p]
+        }
+        return false
+    }
+
     /// Every process on these ttys plus all their descendants (agents' dev servers often detach from the tty).
     func processes(onTTYs devs: [dev_t]) -> Set<pid_t> {
         var seen = Set<pid_t>()
