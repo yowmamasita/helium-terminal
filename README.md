@@ -219,7 +219,14 @@ report, so their prompts can go out that much later.
 helium list                                  tabs, panes and their metadata (JSON)
 helium new-tab [--cwd DIR] [--command CMD]
 helium select <tab>     helium focus <pane>
-helium split [right|down] [--pane ID]
+helium split [right|down|left|up] [--pane ID] [--cwd DIR] [--command CMD]
+helium key [--pane ID] esc down enter ctrl+c shift+tab   press keys by name
+helium wait [--pane ID] [--timeout SECONDS]  block until the pane's agent is idle or blocked on you
+helium clear [--pane ID]                     clear a pane's ring and waiting state
+helium close-tab [--tab ID]
+helium rename [--tab ID] ["API work"]        no title goes back to the automatic one
+helium label [--tab ID] ["bug,urgent"]       set a tab's labels; none clears them
+helium group [--tab ID] ["auth"]             put a tab in a group (made if new); no name removes it
 helium send [--pane ID] "make test\n"
 helium read [--pane ID] [--scrollback]       print a pane's screen, or its whole history
 helium queue [--pane ID] ["run the tests"]    send after the agent's turn; no text opens the queue

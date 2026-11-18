@@ -307,9 +307,18 @@ enum CLI {
       list                                   tabs, panes and their metadata
       new-tab [--cwd DIR] [--command CMD]    open a tab
       select <tab>                           switch to a tab
-      split [right|down] [--pane ID]         split a pane
+      split [right|down|left|up] [--pane ID] [--cwd DIR] [--command CMD]
+                                             split a pane
       focus <pane>                           focus a pane
       send [--pane ID] <text>                type text ("\\n" presses Return)
+      key [--pane ID] <key>...               press keys: esc enter tab space backspace delete up down left right
+                                             home end pageup pagedown, with ctrl+ shift+ alt+ (ctrl+c, shift+tab)
+      wait [--pane ID] [--timeout SECONDS]   block until the pane's agent is idle or blocked on you
+      clear [--pane ID]                      clear a pane's ring and waiting state
+      close-tab [--tab ID]                   close a tab
+      rename [--tab ID] [<title>]            title a tab; no title goes back to the automatic one
+      label [--tab ID] [<name>,<name>]       set a tab's labels; none clears them
+      group [--tab ID] [<name>]              put a tab in a group (made if new); no name removes it
       read [--pane ID] [--scrollback]        print a pane's screen, or its whole history
       queue [--pane ID] [<text>]             send text to the pane's agent after its turn; no text opens the queue
       unqueue [--pane ID] [N]                cancel queued prompt N, or all of them
@@ -317,6 +326,7 @@ enum CLI {
       close [--pane ID]                      close a pane
 
     --pane defaults to $HELIUM_PANE (the pane the command runs in), else the focused pane.
+    --tab defaults to that pane's tab.
     A pane that no longer exists is an error, never the focused pane.
     """
 
@@ -326,19 +336,64 @@ enum CLI {
             return 0
         }
 
+        if req["cmd"] as? String == "wait" { return wait(req) }
         do {
             let reply = try request(req)
-            FileHandle.standardOutput.write(reply)
             let obj = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
             // `read` prints the text itself, so it pipes into grep and friends.
             if req["cmd"] as? String == "read", let text = obj?["text"] as? String {
                 print(text)
                 return 0
             }
+            FileHandle.standardOutput.write(reply)
             return obj?["ok"] as? Bool == true ? 0 : 1
         } catch {
             FileHandle.standardError.write("helium: \(error.localizedDescription) (is Helium running?)\n".data(using: .utf8)!)
             return 2
+        }
+    }
+
+    /// A pane's `state` in a `list` reply: working, blocked or idle; "none" without an agent; nil when the
+    /// pane is gone. No pane named means the selected tab's focused pane.
+    static func paneState(in list: [String: Any], pane: String?) -> String? {
+        for tab in list["tabs"] as? [[String: Any]] ?? [] {
+            for p in tab["panes"] as? [[String: Any]] ?? [] {
+                let match = pane.map { "\(p["id"] ?? "")" == $0 }
+                    ?? (tab["selected"] as? Bool == true && p["focused"] as? Bool == true)
+                if match { return p["state"] as? String ?? "none" }
+            }
+        }
+        return nil
+    }
+
+    /// `helium wait`: polls `list` until the agent stops working. A turn takes a moment to show up after a
+    /// `send`, so an idle agent counts as finished only once it was seen working, or after 4 s.
+    private static func wait(_ req: [String: Any]) -> Int32 {
+        func finish(_ reply: [String: Any]) -> Int32 {
+            FileHandle.standardOutput.write((try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys])) ?? Data())
+            print()
+            return reply["ok"] as? Bool == true ? 0 : 1
+        }
+        let timeout = (req["timeout"] as? String).flatMap(Double.init)
+        let start = Date()
+        var sawWorking = false
+        while true {
+            guard let list = (try? request(["cmd": "list"])).flatMap({ try? JSONSerialization.jsonObject(with: $0) }) as? [String: Any]
+            else {
+                FileHandle.standardError.write("helium: no reply (is Helium running?)\n".data(using: .utf8)!)
+                return 2
+            }
+            let state = paneState(in: list, pane: req["pane"].map { "\($0)" })
+            let waited = Date().timeIntervalSince(start)
+            switch state {
+            case nil: return finish(["ok": false, "error": "no such pane"])
+            case "none": return finish(["ok": false, "error": "no coding agent is running in that pane"])
+            case "working": sawWorking = true
+            case "blocked": return finish(["ok": true, "state": "blocked"])
+            default: if sawWorking || waited > 4 { return finish(["ok": true, "state": "idle"]) }
+            }
+            if let timeout, waited > timeout { return finish(["ok": false, "error": "timed out", "state": state ?? ""]) }
+            Thread.sleep(forTimeInterval: 0.5)
         }
     }
 

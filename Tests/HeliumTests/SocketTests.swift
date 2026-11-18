@@ -64,6 +64,28 @@ final class SocketTests: XCTestCase {
         XCTAssertNil(CLI.requestArguments(["--help"]))
     }
 
+    func testKeyNames() {
+        XCTAssertEqual(SurfaceView.keyStroke("esc"), SurfaceView.KeyStroke(keycode: 0x35))
+        XCTAssertEqual(SurfaceView.keyStroke("Shift+Tab"), SurfaceView.KeyStroke(keycode: 0x30, mods: .shift))
+        XCTAssertEqual(SurfaceView.keyStroke("ctrl+c"), SurfaceView.KeyStroke(keycode: 8, mods: .control, codepoint: 99))
+        XCTAssertNil(SurfaceView.keyStroke("c")) // plain text is `send`'s job
+        XCTAssertNil(SurfaceView.keyStroke("cmd+t")) // would run Helium's own keybinds
+        XCTAssertNil(SurfaceView.keyStroke("ctrl+"))
+        XCTAssertNil(SurfaceView.keyStroke("f13"))
+    }
+
+    func testWaitReadsAPaneStateFromList() {
+        let list: [String: Any] = ["tabs": [
+            ["selected": false, "panes": [["id": 1, "focused": true, "state": "working"]]],
+            ["selected": true, "panes": [["id": 2, "focused": false, "state": "idle"],
+                                         ["id": 3, "focused": true, "state": NSNull()]]],
+        ]]
+        XCTAssertEqual(CLI.paneState(in: list, pane: "1"), "working")
+        XCTAssertEqual(CLI.paneState(in: list, pane: "2"), "idle")
+        XCTAssertEqual(CLI.paneState(in: list, pane: nil), "none") // the focused pane, which has no agent
+        XCTAssertNil(CLI.paneState(in: list, pane: "9"))
+    }
+
     func testSocketNeverRemovesAnUnrelatedFile() throws {
         let path = directory.appendingPathComponent("helium.sock")
         let contents = Data("keep me".utf8)

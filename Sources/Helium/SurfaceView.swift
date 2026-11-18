@@ -198,6 +198,53 @@ final class SurfaceView: NSView, NSTextInputClient {
         }
     }
 
+    private static let namedKeys: [String: UInt32] = [
+        "esc": 0x35, "escape": 0x35, "enter": 0x24, "return": 0x24, "tab": 0x30, "space": 0x31, "backspace": 0x33,
+        "delete": 0x75, "up": 0x7E, "down": 0x7D, "left": 0x7B, "right": 0x7C, "home": 0x73, "end": 0x77,
+        "pageup": 0x74, "pagedown": 0x79,
+    ]
+    /// macOS key codes of a to z (ANSI layout).
+    private static let letterKeys: [UInt32] = [0, 11, 8, 2, 14, 3, 5, 4, 34, 38, 40, 37, 46, 45, 31, 35, 12, 15, 1, 17, 32, 9, 13,
+                                               7, 16, 6]
+
+    struct KeyStroke: Equatable {
+        var keycode: UInt32
+        var mods: NSEvent.ModifierFlags = []
+        var codepoint: UInt32 = 0
+    }
+
+    /// Parses "esc", "down", "shift+tab" or "ctrl+c". A letter needs ctrl or alt (plain text goes through
+    /// `type`); cmd isn't accepted, since it would run Helium's own keybinds.
+    static func keyStroke(_ name: String) -> KeyStroke? {
+        var parts = name.lowercased().split(separator: "+", omittingEmptySubsequences: false).map(String.init)
+        guard let key = parts.popLast(), !key.isEmpty else { return nil }
+        var mods: NSEvent.ModifierFlags = []
+        for part in parts {
+            switch part {
+            case "ctrl", "control": mods.insert(.control)
+            case "shift": mods.insert(.shift)
+            case "alt", "option", "opt": mods.insert(.option)
+            default: return nil
+            }
+        }
+        if let code = namedKeys[key] { return KeyStroke(keycode: code, mods: mods) }
+        guard key.count == 1, let c = key.unicodeScalars.first, ("a"..."z").contains(c),
+              !mods.isDisjoint(with: [.control, .option]) else { return nil }
+        return KeyStroke(keycode: letterKeys[Int(c.value - 97)], mods: mods, codepoint: c.value)
+    }
+
+    func press(_ key: KeyStroke) {
+        guard let surface, !hung else { return }
+        for action in [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE] {
+            var ev = ghostty_input_key_s()
+            ev.action = action
+            ev.keycode = key.keycode
+            ev.mods = Self.mods(key.mods)
+            ev.unshifted_codepoint = key.codepoint
+            _ = ghostty_surface_key(surface, ev)
+        }
+    }
+
     /// The pane's text: the visible screen, or with `scrollback` everything still in its history.
     /// Nil for a hung pane, whose terminal lock may never be released.
     func text(scrollback: Bool) -> String? {

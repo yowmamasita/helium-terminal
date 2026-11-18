@@ -113,9 +113,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: Panes
 
-    func split(_ view: SurfaceView, _ dir: ghostty_action_split_direction_e) {
+    func split(_ view: SurfaceView, _ dir: ghostty_action_split_direction_e, cwd: String? = nil, command: String? = nil) {
         guard let app = Ghostty.shared.app, let pane = view.pane, let ws = pane.workspace else { return }
-        let new = PaneView(surface: SurfaceView(app: app, workingDirectory: view.inheritedWorkingDirectory))
+        let new = PaneView(surface: SurfaceView(app: app, workingDirectory: cwd ?? view.inheritedWorkingDirectory,
+                                                command: command))
         ws.split(pane, with: new, dir)
         // A split made in a background tab (from the socket) mustn't take the keyboard from the visible one.
         if ws === selected { window?.makeFirstResponder(new.surface) } else { ws.focused = new }

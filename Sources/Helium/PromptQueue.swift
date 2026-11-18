@@ -25,6 +25,11 @@ enum PromptQueue {
         var sent = false
     }
 
+    /// What a pane's agent is doing, as `helium list` and `helium wait` report it; nil without an agent.
+    static func word(_ s: State) -> String? {
+        !s.agent ? nil : s.blocked ? "blocked" : s.busy ? "working" : "idle"
+    }
+
     /// Why the next prompt can't go out yet, as shown in the editor; nil means send it now.
     static func hold(_ s: State) -> String? {
         if !s.agent { return "No coding agent is running in this pane." }

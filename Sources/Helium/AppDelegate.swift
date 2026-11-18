@@ -112,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A pane that was named but is gone (a stale $HELIUM_PANE) means no target, never the user's focused pane.
         let paneNamed = !"\(req["pane"] ?? "")".isEmpty
         let target = paneNamed ? int("pane").flatMap(c.pane(id:)) : c.selected?.focusedPane
+        // Tab commands take --tab, else the tab of the pane they run in.
+        let tab = req["tab"] != nil ? int("tab").flatMap { id in c.workspaces.first { $0.id == id } } : target?.workspace
 
         switch req["cmd"] as? String {
         case "list":
@@ -119,11 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 [
                     "id": ws.id, "index": i + 1, "title": ws.title, "cwd": ws.cwd ?? NSNull(),
                     "branch": ws.branch ?? NSNull(), "ports": ws.ports, "notification": ws.notification ?? NSNull(),
-                    "unread": ws.unread, "waiting": ws.waiting, "labels": ws.labels, "group": ws.group?.name ?? NSNull(), "selected": ws === c.selected,
+                    "unread": ws.unread, "waiting": ws.waiting, "working": ws.working, "labels": ws.labels, "group": ws.group?.name ?? NSNull(), "selected": ws === c.selected,
                     "panes": ws.panes.map { p in
                         ["id": p.surface.id, "title": p.surface.title, "cwd": p.surface.pwd ?? NSNull(),
                          "focused": p === ws.focusedPane, "ringing": p.ringing, "waiting": p.waiting,
                          "queue": p.queue, "agent": p.queueAgent?.rawValue ?? NSNull(),
+                         // working, blocked or idle; null without an agent. `hold` is why the queue waits.
+                         "state": PromptQueue.word(p.queueState) ?? NSNull(),
+                         "hold": (p.queue.isEmpty ? nil : PromptQueue.hold(p.queueState)) ?? NSNull(),
                          "hung": p.surface.hung] as [String: Any]
                     },
                 ] as [String: Any]
@@ -139,7 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "split":
             guard let p = target else { return ["ok": false, "error": "no such pane"] }
             let before = Set(p.workspace?.panes.map(\.surface.id) ?? [])
-            c.split(p.surface, arg == "down" ? GHOSTTY_SPLIT_DIRECTION_DOWN : GHOSTTY_SPLIT_DIRECTION_RIGHT)
+            let directions = ["down": GHOSTTY_SPLIT_DIRECTION_DOWN, "up": GHOSTTY_SPLIT_DIRECTION_UP,
+                              "left": GHOSTTY_SPLIT_DIRECTION_LEFT]
+            c.split(p.surface, directions[arg ?? ""] ?? GHOSTTY_SPLIT_DIRECTION_RIGHT,
+                    cwd: req["cwd"] as? String, command: req["command"] as? String)
             let new = p.workspace?.panes.first { !before.contains($0.surface.id) }
             return ["ok": true, "pane": new?.surface.id ?? 0]
         case "focus":
@@ -153,6 +161,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "send":
             guard let p = target, let arg else { return ["ok": false, "error": "need an existing pane and text"] }
             p.surface.type(arg)
+        case "key":
+            guard let p = target, let arg else { return ["ok": false, "error": "need an existing pane and keys"] }
+            let names = arg.split(separator: " ").map(String.init)
+            let keys = names.compactMap(SurfaceView.keyStroke)
+            // All or nothing: half a key sequence could answer a prompt wrongly.
+            guard keys.count == names.count else {
+                return ["ok": false, "error": "unknown key; use names like esc, enter, tab, up, shift+tab, ctrl+c"]
+            }
+            keys.forEach(p.surface.press)
+        case "clear":
+            guard let p = target else { return ["ok": false, "error": "no such pane"] }
+            p.ringing = false
+            p.waiting = false
+            if p.workspace?.unread == false { p.workspace?.notification = nil }
+            c.metadataChanged()
+        case "close-tab":
+            guard let tab else { return ["ok": false, "error": "no such tab"] }
+            tab.panes.forEach { c.requestClose($0.surface, processAlive: false) }
+        case "rename":
+            guard let tab else { return ["ok": false, "error": "no such tab"] }
+            let title = arg?.trimmingCharacters(in: .whitespaces) ?? ""
+            tab.customTitle = title.isEmpty ? nil : title // no title goes back to the automatic one
+            c.metadataChanged()
+            c.saveState()
+        case "label":
+            guard let tab else { return ["ok": false, "error": "no such tab"] }
+            let names = (arg ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            if let unknown = names.first(where: { LabelStore.label(named: $0) == nil }) {
+                return ["ok": false, "error": "no label named \(unknown); create it from a tab's context menu"]
+            }
+            tab.labels = names
+            c.metadataChanged()
+            c.saveState()
+        case "group":
+            guard let tab else { return ["ok": false, "error": "no such tab"] }
+            guard let name = arg?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { c.removeFromGroup(tab); break }
+            let used = Set(c.groups.map(\.color))
+            c.add(tab, to: c.groups.first { $0.name == name }
+                ?? TabGroup(name: name, color: TabGroup.colors.first { !used.contains($0.name) }?.name ?? "Blue"))
         case "read":
             guard let p = target else { return ["ok": false, "error": "no such pane"] }
             guard let text = p.surface.text(scrollback: req["scrollback"] != nil) else {

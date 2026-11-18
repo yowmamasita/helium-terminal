@@ -82,7 +82,9 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   subprocess, with one exception the owner approved: `git status --porcelain=v2 --branch` (with
   `--no-optional-locks`) for the selected tab only, off the main thread, while the window is visible, for the
   ahead/behind counts and the dirty dot in the titlebar strip.
-- **Socket API:** one JSON object per line, file mode 0600. A second instance must never take over or delete a
+- **Socket API:** one JSON object per line, file mode 0600. Every request is answered at once on the main
+  thread, so `helium wait` polls `list` from the CLI instead of holding a connection open. `list` gives each
+  pane's `state` (working, blocked, idle; null without an agent) from the same `PromptQueue.State` the queue uses. A second instance must never take over or delete a
   live socket. `$HELIUM_PANE` is set in every pane. `helium +action` passes through to libghostty CLI actions
   (for example `+show-config --docs`).
 - **Naming:** the app is `Helium Terminal.app` so it can't overwrite the Helium browser's `Helium.app`. The bundle
