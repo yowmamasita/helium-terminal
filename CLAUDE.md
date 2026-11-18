@@ -56,7 +56,11 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   of `busy` or `shell` (idle, with a background shell or monitor) also shows the blue working edge, not saved. Codex's from
   its open rollout file. Agents are matched by argv[0] (native Claude runs as a versioned file). Programs don't
   survive a quit; that would need a session daemon, which the owner didn't ask for. Tests set
-  `HELIUM_STATE_FILE` as well as `HELIUM_SOCKET`.
+  `HELIUM_STATE_FILE` as well as `HELIUM_SOCKET`. Pi, OpenCode V2, Kimi Code, Copilot CLI, Antigravity CLI, Grok
+  Build and Hermes (`--tui`) are covered the same way, each from evidence owned by the pane's own process (README
+  lists it per agent), never from the newest session in a folder. Not covered: MiniMax Code, ZCode and Cline
+  (each would need a shared status line, globally enabled hooks, or an undocumented database), and Maka, dsh and
+  mini-SWE-agent (no per-process session record, or no resume).
 - **Tab titles and labels:** `Workspace.customTitle` (double-click to edit inline; empty means automatic) and
   `Workspace.labels`, names of shared labels in `LabelStore` (user defaults: name plus a palette color). Both are
   saved in `state.json` as optional fields so older state files still load. The sidebar skips rebuilds while a

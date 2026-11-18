@@ -136,20 +136,10 @@ enum CodexSessions {
 
     private static func rolloutFiles(pid: pid_t, home: URL) -> [Selection]? {
         guard pid > 0 else { return [] }
-        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard bytes > 0, bytes <= 1024 * 1024 else { return nil }
-        let stride = MemoryLayout<proc_fdinfo>.stride
-        let capacity = bytes + Int32(stride * 32)
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(capacity) / stride)
-        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, capacity)
-        guard got > 0, got < capacity else { return nil }
+        guard let files = AgentProcess.openFiles(pid) else { return nil }
         let root = home.resolvingSymlinksInPath().appendingPathComponent("sessions").path + "/"
         var rows: [Selection] = []
-        for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == PROX_FDTYPE_VNODE {
-            var info = vnode_fdinfowithpath()
-            let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { continue }
-            let path = withUnsafeBytes(of: info.pvip.vip_path) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+        for (_, path) in files {
             let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
             let name = url.lastPathComponent
             guard url.path.hasPrefix(root), name.hasPrefix("rollout-"), name.hasSuffix(".jsonl") else { continue }

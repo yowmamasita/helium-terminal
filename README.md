@@ -69,41 +69,58 @@ group (with Don't Ask Again). Groups are kept across quit and relaunch.
 ## Session restore
 
 Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Claude Code, Codex,
-omp (the pi harness), and OpenCode resume the conversation selected in each pane, including changes made
-with their own session pickers. Compatible launch flags and configuration-directory overrides are preserved;
-initial prompts and image attachments are not replayed. Other programs start in a fresh shell. Closing the
-window instead of quitting starts clean next time.
+omp (the pi harness), Pi, OpenCode (V1 and V2), Kimi Code, GitHub Copilot CLI, Antigravity CLI (`agy`),
+Grok Build and Hermes Agent (`--tui` only) resume the conversation selected in each pane, including changes
+made with their own session pickers. Compatible launch flags and configuration-directory overrides are
+preserved; initial prompts and image attachments are not replayed. Other programs start in a fresh shell.
+Closing the window instead of quitting starts clean next time.
 
 An agent with no saved conversation reopens fresh. Missing previously saved history is not silently replaced
 with a different conversation.
 
 Settings > General > Session restore controls restoring, resuming each agent, and custom resume commands.
 Templates take shell-quoted `{command}` (the original executable, including an interpreter when needed),
-`{id}`, `{file}` (omp's journal), `{flags}`, and `{cwd}`. Defaults:
+`{id}`, `{file}` (omp's or Pi's journal), `{flags}`, and `{cwd}`. Defaults:
 
 - Claude Code: `{command} {flags} --resume {id}`
 - Codex: `{command} resume {id} {flags}`
 - omp: `{command} {flags} --resume {file}`
+- Pi: `{command} {flags} --session {file}`
 - OpenCode: `{command} {flags} --session {id}`
+- Kimi Code: `{command} -S {id}`
+- GitHub Copilot CLI: `{command} {flags} --session-id {id}`
+- Antigravity CLI: `{command} {flags} --conversation={id}`
+- Grok Build, Hermes Agent: `{command} {flags} --resume {id}`
 
 Custom commands can still use shell functions or aliases, for example `cc --resume {id}`. The default
 `{command}` avoids depending on the new shell's `PATH`. Only whitelisted, non-secret environment overrides
 for configuration paths and profiles are saved, including `CODEX_HOME` and omp's agent/session directories.
 
-Claude Code is identified through `~/.claude/sessions/<pid>.json`. Codex's title exposes a shortened thread ID;
-Helium resolves it against native session metadata and loaded threads, including daemon-backed sessions.
-It resumes only when exactly one full ID matches, never by choosing the latest conversation. omp reports
-its exact journal path, with a per-TTY breadcrumb fallback when extensions are disabled. OpenCode reports the
-selected TUI route, rather than guessing from backend activity.
+Each pane's conversation comes from evidence that belongs to that pane's process, never from the newest
+session in a folder, so two panes running the same agent in one folder keep their own conversations:
 
-With restore enabled, Helium installs an omp extension loader and an OpenCode TUI plugin, both inert outside
-Helium. It also adds `app-name` and `thread-id` to Codex's `tui.terminal_title`, preserving other settings and
-components. Codex's executable is not patched. Integration setup errors appear in Settings rather than
+- Claude Code: `~/.claude/sessions/<pid>.json`.
+- Codex: its title shows a shortened thread ID, which Helium resolves against native session metadata and
+  loaded threads, including daemon-backed sessions, resuming only when exactly one full ID matches.
+- omp and Pi: an extension reports the exact journal path (omp also has a per-TTY breadcrumb fallback when
+  extensions are disabled). Pi writes its journal with the first message; until then it reopens fresh.
+- OpenCode: a TUI plugin reports the selected route, rather than guessing from backend activity.
+- Kimi Code: a `SessionStart` hook reports the session. Kimi Code and Pi overwrite their own argument list,
+  so their launch flags can't be read or replayed.
+- GitHub Copilot CLI: the session files the process holds open, and its own process log when `/new` leaves
+  several open. A bare supervisor left by `/restart` is followed to the process that owns the session.
+- Antigravity CLI: the conversation lock the process holds open, and its own log when several are open.
+- Grok Build: `~/.grok/active_sessions.json`, which records the owning pid. After `/new` the most recently
+  opened session is taken; a switch in Grok's agent dashboard isn't visible until another session is opened.
+- Hermes Agent: in `--tui` mode, the session file the TUI keeps for its parent. The default line-mode CLI runs
+  its sessions in a shared gateway process and keeps no per-pane record, so it isn't resumed.
+
+With restore enabled, Helium installs an omp/Pi extension loader, OpenCode TUI plugins (V1 in `tui.json`,
+V2 as `plugins/helium-terminal/`), and a Kimi Code hook (a `[[hooks]]` table appended to `config.toml` and a
+small script beside it), all inert outside Helium. It also adds `app-name` and `thread-id` to Codex's
+`tui.terminal_title`, preserving other settings and components. Copilot, Antigravity, Grok and Hermes need no
+changes. Codex's executable is not patched. Integration setup errors appear in Settings rather than
 overwriting an unrecognized configuration.
-
-Relaunch Helium after upgrading, then restart agents inside the updated app to enable the new tracking.
-Use the agent's own resume picker once for conversations an older Helium did not track. Helium saves the
-layout every few seconds and on quit to `~/Library/Application Support/helium-terminal/state.json`.
 
 ## Updates
 

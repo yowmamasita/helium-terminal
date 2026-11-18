@@ -81,6 +81,24 @@ enum AgentConfig {
         return "tui.terminal_title = \(value)\n" + text
     }
 
+    /// Appends a Kimi Code `[[hooks]]` table running `command` on SessionStart. Appending keeps every existing
+    /// byte; an array-of-tables header is valid at the end of any document. An inline `hooks = [...]` can't be
+    /// extended that way, so it is refused rather than rewritten.
+    static func addingKimiHook(_ text: String, command: String, marker: String) throws -> String {
+        if text.contains(marker) { return text }
+        for line in text.split(whereSeparator: \.isNewline) {
+            let trimmed = line.drop { $0 == " " || $0 == "\t" }
+            if trimmed.hasPrefix("[hooks") || trimmed.hasPrefix("[ hooks") { throw ConfigError.invalidConfig }
+            if trimmed.hasPrefix("hooks") {
+                let rest = trimmed.dropFirst(5).drop { $0 == " " || $0 == "\t" }
+                if rest.hasPrefix("=") { throw ConfigError.invalidConfig }
+            }
+        }
+        let separator = text.isEmpty || text.hasSuffix("\n") ? "" : "\n"
+        return text + separator + "\n# Helium Terminal: tells the terminal pane which session it shows. Inert outside Helium.\n"
+            + "[[hooks]]\nevent = \"SessionStart\"\ncommand = \(try jsonString(command))\n"
+    }
+
     private static func jsonString(_ value: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
         return String(decoding: data, as: UTF8.self)

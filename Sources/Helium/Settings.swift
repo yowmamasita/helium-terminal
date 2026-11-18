@@ -403,7 +403,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             field.placeholderString = AgentSession.defaultTemplate(for: kind)
             field.stringValue = HeliumDefaults.standard.string(forKey: AgentSession.templateKey(for: kind)) ?? ""
             field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            field.widthAnchor.constraint(equalToConstant: 260).isActive = true
+            field.widthAnchor.constraint(equalToConstant: 300).isActive = true
             field.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
             field.target = self
             field.action = #selector(templateChanged(_:))
@@ -412,7 +412,7 @@ final class SettingsWindow: NSWindowController, NSWindowDelegate {
             agentControls += [toggle, field]
             grid.addRow(with: [toggle, field])
         }
-        let hint = label("{command} is the launch program, {id} the session, {file} its omp journal, "
+        let hint = label("{command} is the launch program, {id} the session, {file} its omp or Pi journal, "
                          + "{flags} the launch flags, {cwd} its folder. Leave empty for the default. Other programs start fresh."
                          + (AgentIntegrations.errors.isEmpty ? "" : "\nIntegration setup: " + AgentIntegrations.errors.joined(separator: "; ")),
                          secondary: true)

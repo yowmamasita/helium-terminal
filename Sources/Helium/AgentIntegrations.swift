@@ -60,18 +60,18 @@ enum AgentIntegrations {
             agentDirectories += names.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
                 .map { $0.appendingPathComponent("agent", isDirectory: true) }
         }
+        var loaderDirectories = Set<URL>()
         if kind == .omp || kind == nil && (installed("omp", home: home, env: env) || FileManager.default.fileExists(atPath: agentRoot.path)) {
-            for agent in Set(agentDirectories) where configured.insert("omp:" + agent.path).inserted {
-                perform("omp extension") {
-                    let source = resourceDirectory.appendingPathComponent("omp-loader.js")
-                    let destination = agent.appendingPathComponent("extensions/helium-terminal-session.js")
-                    let text = try String(contentsOf: source, encoding: .utf8)
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        let old = try String(contentsOf: destination, encoding: .utf8)
-                        guard old.hasPrefix("// Helium Terminal agent integration.") else { throw SetupError.existingExtension }
-                    }
-                    try update(destination) { _ in text }
-                }
+            loaderDirectories.formUnion(agentDirectories)
+        }
+        // Pi reads the same PI_CODING_AGENT_DIR, defaulting to ~/.pi/agent. The loader serves both hosts.
+        let piRoot = path(env["PI_CODING_AGENT_DIR"], relativeTo: home, default: ".pi/agent")
+        if kind == .pi || kind == nil && (installed("pi", home: home, env: env) || FileManager.default.fileExists(atPath: piRoot.path)) {
+            loaderDirectories.insert(piRoot)
+        }
+        for agent in loaderDirectories where configured.insert("omp:" + agent.path).inserted {
+            perform("omp/Pi extension") {
+                try installLoader("omp-loader.js", at: agent.appendingPathComponent("extensions/helium-terminal-session.js"))
             }
         }
         let configHome = path(env["XDG_CONFIG_HOME"], relativeTo: home, default: home.appendingPathComponent(".config").path)
@@ -94,6 +94,25 @@ enum AgentIntegrations {
                     try AgentConfig.addingOpenCodePlugin($0, plugin: plugin)
                 }
             }
+            // V2 ignores V1's plugin list but loads every directory in plugins/; V1 ignores directories there.
+            // Never create V2's cli.json: its first run migrates tui.json only when cli.json is missing.
+            perform("OpenCode V2 TUI plugin") {
+                try installLoader("opencode-v2-loader.mjs",
+                                  at: openCodeConfig.appendingPathComponent("plugins/helium-terminal/tui.mjs"))
+            }
+        }
+        // Kimi Code runs SessionStart hooks as `sh -c`; `exec` keeps kimi as the script's parent.
+        let kimiHome = path(env["KIMI_CODE_HOME"], relativeTo: home, default: ".kimi-code")
+        if (kind == .kimi || kind == nil && FileManager.default.fileExists(atPath: kimiHome.path)),
+           configured.insert("kimi:" + kimiHome.path).inserted {
+            perform("Kimi Code hook") {
+                let script = kimiHome.appendingPathComponent("helium-terminal-hook.sh")
+                try installLoader("hook.sh", at: script)
+                try update(kimiHome.appendingPathComponent("config.toml")) {
+                    try AgentConfig.addingKimiHook($0, command: "exec /bin/sh \(AgentSession.shellQuote(script.path)) kimi",
+                                                   marker: "helium-terminal-hook.sh")
+                }
+            }
         }
         let codexHome = path(env["CODEX_HOME"], relativeTo: home, default: home.appendingPathComponent(".codex").path)
         if (kind == .codex || kind == nil && (installed("codex", home: home, env: env) || FileManager.default.fileExists(atPath: codexHome.path))),
@@ -106,6 +125,17 @@ enum AgentIntegrations {
                 }
             }
         }
+    }
+
+    /// Copies a small loader into an agent's own directory. It finds the rest through the pane's environment,
+    /// so no app path is written into user configuration. A foreign file at that path is never replaced.
+    private static func installLoader(_ name: String, at destination: URL) throws {
+        let text = try String(contentsOf: resourceDirectory.appendingPathComponent(name), encoding: .utf8)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            let old = try String(contentsOf: destination, encoding: .utf8)
+            guard old.prefix(256).contains("Helium Terminal agent integration.") else { throw SetupError.existingExtension }
+        }
+        try update(destination) { _ in text }
     }
 
     private static func installed(_ name: String, home: URL, env: [String: String]) -> Bool {

@@ -4,7 +4,7 @@ import Foundation
 /// A running agent's exact conversation and the launch configuration needed to resume it.
 struct AgentSession: Codable, Equatable {
     enum Kind: String, Codable, CaseIterable {
-        case claude, codex, omp, opencode
+        case claude, codex, omp, opencode, pi, kimi, copilot, agy, grok, hermes
 
         var displayName: String {
             switch self {
@@ -12,6 +12,12 @@ struct AgentSession: Codable, Equatable {
             case .codex: "Codex"
             case .omp: "omp (pi harness)"
             case .opencode: "OpenCode"
+            case .pi: "Pi"
+            case .kimi: "Kimi Code"
+            case .copilot: "GitHub Copilot CLI"
+            case .agy: "Antigravity CLI"
+            case .grok: "Grok Build"
+            case .hermes: "Hermes Agent"
             }
         }
     }
@@ -41,16 +47,17 @@ struct AgentSession: Codable, Equatable {
     /// Typed into a fresh shell on relaunch, using the template from Settings.
     var resumeCommand: String {
         let template = Self.template(for: kind)
-        if unpersisted == true, template == Self.defaultTemplate(for: kind) {
+        // Pi writes its journal with the first message; `--session` on a missing file would invent a new ID there.
+        if unpersisted == true || kind == .pi, template == Self.defaultTemplate(for: kind) {
             let fresh: Bool
             switch kind {
-            case .omp: fresh = sessionFile.map { !FileManager.default.fileExists(atPath: $0) } ?? false
-            case .opencode: fresh = true
+            case .omp, .pi: fresh = sessionFile.map { !FileManager.default.fileExists(atPath: $0) } ?? false
+            case .opencode, .grok: fresh = true
             case .codex:
                 let home = URL(fileURLWithPath: environment?["HOME"] ?? NSHomeDirectory())
                 let codexHome = AgentIntegrations.path(environment?["CODEX_HOME"], relativeTo: home, default: ".codex")
                 fresh = CodexSessions.hasPersistedSession(sessionID, home: codexHome) == false
-            case .claude: fresh = false
+            case .claude, .kimi, .copilot, .agy, .hermes: fresh = false
             }
             if fresh { return resumeCommand(template: "{command} {flags}") }
         }
@@ -92,6 +99,11 @@ struct AgentSession: Codable, Equatable {
         case .codex: "{command} resume {id} {flags}"
         case .omp: "{command} {flags} --resume {file}"
         case .opencode: "{command} {flags} --session {id}"
+        case .pi: "{command} {flags} --session {file}"
+        case .kimi: "{command} -S {id}"
+        case .copilot: "{command} {flags} --session-id {id}"
+        case .agy: "{command} {flags} --conversation={id}"
+        case .grok, .hermes: "{command} {flags} --resume {id}"
         }
     }
 
@@ -179,7 +191,7 @@ struct AgentSession: Codable, Equatable {
     /// Drops what must not be replayed: resume/continue options (a new ID is appended) and an
     /// initial prompt (resuming must not send it again).
     static func resumableFlags(_ kind: Kind, _ args: [String]) -> [String] {
-        if kind == .omp || kind == .opencode { return AgentInvocation.resumableFlags(kind, args) }
+        if kind != .claude && kind != .codex { return AgentInvocation.resumableFlags(kind, args) }
         let dropWithValue: Set<String> = kind == .claude
             ? ["-r", "--resume", "--session-id", "--from-pr"] : ["resume", "fork"]
         let requiredDropValue = kind == .claude ? ["--session-id"] : []
@@ -271,7 +283,21 @@ enum Agents {
                                                   command: process.command))
         case .omp:
             return Snapshot(process: process, session: OmpSessions.session(process: process, ttyName: ttyName))
-        case .codex, .opencode:
+        case .copilot:
+            if let session = NativeSessions.copilot(process) { return Snapshot(process: process, session: session) }
+            // After /restart the pane's process is a bare supervisor; its `copilot` child owns the session.
+            for child in tree.children[process.identity.pid] ?? [] {
+                if let worker = processes[child], worker.invocation.kind == .copilot,
+                   let session = NativeSessions.copilot(worker) { return Snapshot(process: worker, session: session) }
+            }
+            return Snapshot(process: process)
+        case .agy:
+            return Snapshot(process: process, session: NativeSessions.agy(process))
+        case .grok:
+            return Snapshot(process: process, session: NativeSessions.grok(process))
+        case .hermes:
+            return Snapshot(process: process, session: NativeSessions.hermes(process, tree: tree))
+        case .codex, .opencode, .pi, .kimi:
             return Snapshot(process: process)
         }
     }

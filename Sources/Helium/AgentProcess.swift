@@ -19,6 +19,8 @@ struct AgentProcess {
         let executablePath: String
         let searchPath: String?
         let workingDirectory: String?
+        /// Hermes' TUI child gets the path of the file it keeps the active session ID in. Never saved or exported.
+        var hermesSessionFile: String? = nil
     }
 
     static func read(_ pid: pid_t) -> AgentProcess? {
@@ -34,6 +36,26 @@ struct AgentProcess {
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard pid > 1, proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
         return Identity(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
+    }
+
+    /// The files a process holds open, by descriptor (libproc), or nil if they can't be listed.
+    static func openFiles(_ pid: pid_t) -> [(fd: Int32, path: String)]? {
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bytes > 0, bytes <= 1024 * 1024 else { return nil }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        let capacity = bytes + Int32(stride * 32)
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(capacity) / stride)
+        let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, capacity)
+        guard got > 0, got < capacity else { return nil }
+        var files: [(fd: Int32, path: String)] = []
+        for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == PROX_FDTYPE_VNODE {
+            var info = vnode_fdinfowithpath()
+            let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { continue }
+            let path = withUnsafeBytes(of: info.pvip.vip_path) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            files.append((fd.proc_fd, path))
+        }
+        return files
     }
 
     /// KERN_PROCARGS2: argc, exec path, padding, argv, then the original environment.
@@ -69,6 +91,7 @@ struct AgentProcess {
         var environment: [String: String] = [:]
         var searchPath: String?
         var workingDirectory: String?
+        var hermesSessionFile: String?
         while i < buffer.endIndex {
             let entry = string()
             guard let separator = entry.firstIndex(of: "=") else { continue }
@@ -76,12 +99,13 @@ struct AgentProcess {
             let value = entry[entry.index(after: separator)...]
             if key == "PATH" { searchPath = String(value) }
             if key == "PWD" { workingDirectory = String(value) }
+            if key == "HERMES_TUI_ACTIVE_SESSION_FILE" { hermesSessionFile = String(value) }
             if AgentInvocation.environmentKeys.contains(key) {
                 environment[key] = String(value)
             }
         }
         return Arguments(argv: argv, environment: environment, executablePath: executablePath,
-                         searchPath: searchPath, workingDirectory: workingDirectory)
+                         searchPath: searchPath, workingDirectory: workingDirectory, hermesSessionFile: hermesSessionFile)
     }
 
     static func launchCommand(_ data: Arguments) -> [String]? {
@@ -109,6 +133,9 @@ struct AgentProcess {
             guard data.argv.count > 1, let script = absolute(data.argv[1], script: true) else { return nil }
             return [program, script]
         }
+        // A blanked argv (process.title) or `python -c` leaves only the interpreter; the kind's name is the better command.
+        let name = (program as NSString).lastPathComponent
+        if ["bun", "node", "nodejs"].contains(name) || name.hasPrefix("python") { return nil }
         return [program]
     }
 }
@@ -138,7 +165,7 @@ struct AgentRegistration {
         guard request["token"] as? String == token,
               let number = request["pid"] as? Int, number > 1, number <= Int(Int32.max),
               let rawKind = request["kind"] as? String, let kind = AgentSession.Kind(rawValue: rawKind),
-              kind == .omp || kind == .opencode,
+              reporting.contains(kind),
               tree.processes(onTTYs: [dev]).contains(pid_t(number)),
               let process = AgentProcess.read(pid_t(number)), process.invocation.kind == kind,
               request["sessionID"] != nil else { return nil }
@@ -152,7 +179,7 @@ struct AgentRegistration {
         }
         guard let id = request["sessionID"] as? String, validSessionID(id, kind: kind) else { return nil }
         let file = request["sessionFile"] as? String
-        if kind == .omp {
+        if kind == .omp || kind == .pi {
             guard let file, file.hasPrefix("/"), !file.utf8.contains(0) else { return nil }
         }
         let cwd = (request["cwd"] as? String).flatMap { $0.hasPrefix("/") && !$0.utf8.contains(0) ? $0 : nil }
@@ -163,9 +190,21 @@ struct AgentRegistration {
         return AgentRegistration(identity: process.identity, session: session)
     }
 
+    /// Agents that report their own session from inside the process (an extension, plugin or hook).
+    static let reporting: Set<AgentSession.Kind> = [.omp, .opencode, .pi, .kimi]
+
     static func validSessionID(_ id: String, kind: AgentSession.Kind) -> Bool {
-        if kind != .opencode { return UUID(uuidString: id) != nil }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-        return id.hasPrefix("ses_") && id.count > 4 && id.count <= 256 && id.unicodeScalars.allSatisfy(allowed.contains)
+        switch kind {
+        case .opencode:
+            return id.hasPrefix("ses_") && id.count > 4 && id.count <= 256 && id.unicodeScalars.allSatisfy(allowed.contains)
+        case .kimi:
+            return id.hasPrefix("session_") && UUID(uuidString: String(id.dropFirst(8))) != nil
+        case .pi: // UUIDv7 by default, but `pi --session-id` takes any [A-Za-z0-9._-] name.
+            return (1...256).contains(id.count) && !id.hasPrefix("-") && !id.hasPrefix(".")
+                && id.unicodeScalars.allSatisfy { allowed.contains($0) || $0 == "." }
+        default:
+            return UUID(uuidString: id) != nil
+        }
     }
 }
