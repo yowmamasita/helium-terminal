@@ -6,9 +6,12 @@ struct AgentInvocation {
     let arguments: [String]
     let isLauncher: Bool
 
-    /// Node agents that set `process.title` (Pi, Kimi Code) overwrite their argv on macOS:
-    /// KERN_PROCARGS2 then reads the title followed by empty strings, and the flags are gone.
-    private static let titles: [String: AgentSession.Kind] = ["kimi-code": .kimi]
+    /// Node agents that set `process.title` (Pi, Kimi Code, MiniMax Code, ZCode) overwrite their argv on macOS:
+    /// KERN_PROCARGS2 then reads the title followed by empty strings, and the flags are gone. Cline's npm
+    /// postinstall links its native binary as `.cline`.
+    private static let titles: [String: AgentSession.Kind] = [
+        "kimi-code": .kimi, "minimax-code": .mcode, "zcode-cli": .zcode, ".cline": .cline,
+    ]
 
     init?(_ argv: [String]) {
         guard let executable = argv.first else { return nil }
@@ -32,9 +35,15 @@ struct AgentInvocation {
                 kind = .opencode
             } else if scriptName == "copilot" {
                 kind = .copilot // npm's loader; it spawns the native binary, which is the agent.
+            } else if scriptName == "cline" {
+                kind = .cline // likewise
+            } else if script.contains("/@minimax-ai/code/") && scriptName == "cli.js" {
+                kind = .mcode
+            } else if scriptName == "zcode.mjs" || scriptName == "zcode.cjs" {
+                kind = .zcode
             } else { return nil }
             arguments = Array(argv.dropFirst(2))
-            isLauncher = kind == .opencode || kind == .copilot
+            isLauncher = kind == .opencode || kind == .copilot || kind == .cline
         } else if name.hasPrefix("python"), argv.count > 1 {
             // Hermes' own launcher runs `python -I -c '<bootstrap>' args`; pip installs run `python …/bin/hermes args`.
             if argv.count > 3, argv[1] == "-I", argv[2] == "-c", argv[3].contains("from hermes_cli.main import main") {
@@ -91,8 +100,17 @@ struct AgentInvocation {
                 i += 1
             }
             return true
-        case .kimi:
-            return true // Its argv is blank once the title is set; only the TUI's SessionStart hook reports.
+        case .kimi, .mcode, .zcode:
+            return true // Argv is blank once the title is set; only the agent's own hook reports.
+        case .cline:
+            // A prompt without -i is a one-shot run; the hub daemon and plugin sandbox are the same binary.
+            if arguments.contains(where: { ["-y", "--yolo", "-z", "--zen", "--json", "--acp", "--update", "--kanban", "-h", "--help",
+                                            "-V", "--version", "--cline-hub-daemon", "--plugin-sandbox",
+                                            "--telemetry-selfcheck"].contains(Self.name($0, kind)) }) { return false }
+            guard let command = Self.firstPositional(arguments, kind) else { return true }
+            return arguments.contains { $0 == "-i" || $0 == "--tui" }
+                && !["auth", "config", "plugin", "skill", "connect", "mcp", "doctor", "history", "h", "hook", "schedule", "hub",
+                     "update", "version", "kanban", "dashboard"].contains(command)
         case .copilot:
             if arguments.contains(where: { ["-p", "--prompt", "--acp", "-h", "--help", "-v", "--version",
                                             "--binary-version", "--connect"].contains(Self.name($0, kind)) }) { return false }
@@ -130,6 +148,8 @@ struct AgentInvocation {
         "OMP_PROFILE", "PI_PROFILE", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
         "OPENCODE_DB", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_TUI_CONFIG",
         "KIMI_CODE_HOME", "COPILOT_HOME", "GROK_HOME", "HERMES_HOME", "HERMES_DATA_DIR_SUFFIX",
+        "MINIMAX_DATA_DIR", "MAVIS_DATA_DIR", "ZCODE_STORAGE_DIR", "ZCODE_SESSION_DB_PATH", "ZCODE_SESSION_DB",
+        "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_DB_DATA_DIR", "CLINE_SESSION_DATA_DIR",
     ]
 
     /// Flags kept on resume, per agent. Everything else (resume selectors, prompts, keys, one-shot options) is dropped.
@@ -188,6 +208,12 @@ struct AgentInvocation {
                        "--fullscreen", "--no-alt-screen", "--leader", "--no-leader"],
             dropped: ["--session-id", "-s", "--load", "--cwd", "--worktree-ref", "--ref", "--system-prompt-override",
                       "--system-prompt", "--agents", "--json-schema"]),
+        .cline: Replay(
+            values: ["-P", "--provider", "-m", "--model", "--compaction", "--retries", "--config", "--data-dir", "--hooks-dir",
+                     "-c", "--cwd"],
+            switches: ["-p", "--plan", "-a", "--act", "-i", "--tui", "-v", "--verbose"],
+            optional: ["--thinking", "--auto-approve"],
+            dropped: ["--id", "-k", "--key", "-s", "--system", "-t", "--timeout", "--team-name"]),
         // A Hermes resume whose policy flags (model, provider, toolsets…) differ from the session's is refused.
         .hermes: Replay(values: ["-p", "--profile"], switches: ["--tui", "--cli", "--native"],
                         dropped: ["--resume", "-r", "-c", "--continue", "--in", "-m", "--model", "--provider", "--reasoning",

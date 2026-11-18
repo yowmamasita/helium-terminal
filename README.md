@@ -69,8 +69,8 @@ group (with Don't Ask Again). Groups are kept across quit and relaunch.
 ## Session restore
 
 Quit with ⌘Q and Helium reopens the same tabs and splits in the same folders next time. Claude Code, Codex,
-omp (the pi harness), Pi, OpenCode (V1 and V2), Kimi Code, GitHub Copilot CLI, Antigravity CLI (`agy`),
-Grok Build and Hermes Agent (`--tui` only) resume the conversation selected in each pane, including changes
+omp (the pi harness), Pi, OpenCode (V1 and V2), Kimi Code, MiniMax Code, ZCode, Cline, GitHub Copilot CLI,
+Antigravity CLI (`agy`), Grok Build and Hermes Agent (`--tui` only) resume the conversation selected in each pane, including changes
 made with their own session pickers. Compatible launch flags and configuration-directory overrides are
 preserved; initial prompts and image attachments are not replayed. Other programs start in a fresh shell.
 Closing the window instead of quitting starts clean next time.
@@ -88,6 +88,9 @@ Templates take shell-quoted `{command}` (the original executable, including an i
 - Pi: `{command} {flags} --session {file}`
 - OpenCode: `{command} {flags} --session {id}`
 - Kimi Code: `{command} -S {id}`
+- MiniMax Code: `{command} --session {id}`
+- ZCode: `{command} --resume {id}`
+- Cline: `{command} {flags} --id {id}`
 - GitHub Copilot CLI: `{command} {flags} --session-id {id}`
 - Antigravity CLI: `{command} {flags} --conversation={id}`
 - Grok Build, Hermes Agent: `{command} {flags} --resume {id}`
@@ -105,8 +108,19 @@ session in a folder, so two panes running the same agent in one folder keep thei
 - omp and Pi: an extension reports the exact journal path (omp also has a per-TTY breadcrumb fallback when
   extensions are disabled). Pi writes its journal with the first message; until then it reopens fresh.
 - OpenCode: a TUI plugin reports the selected route, rather than guessing from backend activity.
-- Kimi Code: a `SessionStart` hook reports the session. Kimi Code and Pi overwrite their own argument list,
-  so their launch flags can't be read or replayed.
+- Kimi Code: a `SessionStart` hook reports the session. Kimi Code, MiniMax Code, ZCode and Pi overwrite their
+  own argument list, so their launch flags can't be read or replayed.
+- MiniMax Code: its custom status-line command, which it runs at startup and on every session change. MiniMax has
+  only one custom status command, so Helium doesn't install it over one of yours (Settings shows why).
+- ZCode: a `SessionStart` process hook. ZCode's user hooks are off by default, so installing it turns
+  `hooks.enabled` on, which also enables any other hooks in that file. After `/new` the previous session is kept
+  until the first prompt creates the new one. Built from ZCode's source; there's no official standalone CLI
+  download to try it against.
+- Cline: the first pane runs its session in its own process (its `sessions.db` row carries the pid); later panes
+  run theirs in Cline's shared hub, whose event log records which pane's process created each session. Both are
+  Cline's internal, undocumented databases, read only and off the main thread. Hooks can't be used: in the hub
+  they run with the first pane's environment. Resuming a session from Cline's `/history` inside a hub-hosted
+  pane isn't recognized until the pane starts a new session.
 - GitHub Copilot CLI: the session files the process holds open, and its own process log when `/new` leaves
   several open. A bare supervisor left by `/restart` is followed to the process that owns the session.
 - Antigravity CLI: the conversation lock the process holds open, and its own log when several are open.
@@ -118,10 +132,12 @@ session in a folder, so two panes running the same agent in one folder keep thei
   Hermes' source; not yet tried against a running Hermes.
 
 With restore enabled, Helium installs an omp/Pi extension loader, OpenCode TUI plugins (V1 in `tui.json`,
-V2 as `plugins/helium-terminal/`), and a Kimi Code hook (a `[[hooks]]` table appended to `config.toml` and a
-small script beside it), all inert outside Helium. It also adds `app-name` and `thread-id` to Codex's
-`tui.terminal_title`, preserving other settings and components. Copilot, Antigravity, Grok and Hermes need no
-changes. Codex's executable is not patched. Integration setup errors appear in Settings rather than
+V2 as `plugins/helium-terminal/`), a Kimi Code hook (a `[[hooks]]` table appended to `config.toml`), MiniMax
+Code's `tui.customStatusLine` (plus `custom-command` in `tui.statusLine`), and a ZCode hook in
+`~/.zcode/cli/config.json`. The hooks run a small script Helium places beside each config. All are inert outside
+Helium. It also adds `app-name` and `thread-id` to Codex's
+`tui.terminal_title`, preserving other settings and components. Copilot, Antigravity, Grok, Hermes and Cline need
+no changes. Codex's executable is not patched. Integration setup errors appear in Settings rather than
 overwriting an unrecognized configuration.
 
 ## Updates

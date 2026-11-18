@@ -4,7 +4,7 @@ import Foundation
 /// A running agent's exact conversation and the launch configuration needed to resume it.
 struct AgentSession: Codable, Equatable {
     enum Kind: String, Codable, CaseIterable {
-        case claude, codex, omp, opencode, pi, kimi, copilot, agy, grok, hermes
+        case claude, codex, omp, opencode, pi, kimi, copilot, agy, grok, hermes, mcode, zcode, cline
 
         var displayName: String {
             switch self {
@@ -18,6 +18,9 @@ struct AgentSession: Codable, Equatable {
             case .agy: "Antigravity CLI"
             case .grok: "Grok Build"
             case .hermes: "Hermes Agent"
+            case .mcode: "MiniMax Code"
+            case .zcode: "ZCode"
+            case .cline: "Cline"
             }
         }
     }
@@ -57,7 +60,7 @@ struct AgentSession: Codable, Equatable {
                 let home = URL(fileURLWithPath: environment?["HOME"] ?? NSHomeDirectory())
                 let codexHome = AgentIntegrations.path(environment?["CODEX_HOME"], relativeTo: home, default: ".codex")
                 fresh = CodexSessions.hasPersistedSession(sessionID, home: codexHome) == false
-            case .claude, .kimi, .copilot, .agy, .hermes: fresh = false
+            case .claude, .kimi, .copilot, .agy, .hermes, .mcode, .zcode, .cline: fresh = false
             }
             if fresh { return resumeCommand(template: "{command} {flags}") }
         }
@@ -104,6 +107,9 @@ struct AgentSession: Codable, Equatable {
         case .copilot: "{command} {flags} --session-id {id}"
         case .agy: "{command} {flags} --conversation={id}"
         case .grok, .hermes: "{command} {flags} --resume {id}"
+        case .mcode: "{command} --session {id}"
+        case .zcode: "{command} --resume {id}"
+        case .cline: "{command} {flags} --id {id}"
         }
     }
 
@@ -297,7 +303,9 @@ enum Agents {
             return Snapshot(process: process, session: NativeSessions.grok(process))
         case .hermes:
             return Snapshot(process: process, session: NativeSessions.hermes(process, tree: tree))
-        case .codex, .opencode, .pi, .kimi:
+        case .cline:
+            return Snapshot(process: process, session: ClineSessions.session(process))
+        case .codex, .opencode, .pi, .kimi, .mcode, .zcode:
             return Snapshot(process: process)
         }
     }

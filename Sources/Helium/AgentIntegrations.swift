@@ -114,6 +114,35 @@ enum AgentIntegrations {
                 }
             }
         }
+        // MiniMax Code's custom status line runs as mcode's own child with the pane's environment (no shell).
+        let miniMax = path(env["MINIMAX_DATA_DIR"] ?? env["MAVIS_DATA_DIR"], relativeTo: home, default: ".minimax")
+        if (kind == .mcode || kind == nil && (installed("mcode", home: home, env: env) || FileManager.default.fileExists(atPath: miniMax.path))),
+           configured.insert("mcode:" + miniMax.path).inserted {
+            perform("MiniMax Code status line") {
+                let script = miniMax.appendingPathComponent("helium-terminal-hook.sh")
+                try installLoader("hook.sh", at: script)
+                try update(miniMax.appendingPathComponent("config.yaml")) {
+                    try AgentConfig.addingMiniMaxStatusLine($0, command: "/bin/sh \(AgentSession.shellQuote(script.path)) mcode",
+                                                            marker: "helium-terminal-hook.sh")
+                }
+            }
+        }
+        // ZCode user hooks are off by default; `type: process` runs /bin/sh as zcode's own child.
+        let zcode = home.appendingPathComponent(".zcode", isDirectory: true)
+        if (kind == .zcode || kind == nil && (installed("zcode", home: home, env: env) || FileManager.default.fileExists(atPath: zcode.path))),
+           configured.insert("zcode:" + zcode.path).inserted {
+            perform("ZCode hook") {
+                let script = zcode.appendingPathComponent("cli/helium-terminal-hook.sh")
+                try installLoader("hook.sh", at: script)
+                let entry: [String: Any] = ["hooks": [["type": "process", "command": "/bin/sh", "args": [script.path, "zcode"],
+                                                       "timeoutMs": 5000]]]
+                let json = String(decoding: try JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys, .withoutEscapingSlashes]),
+                                  as: UTF8.self)
+                try update(zcode.appendingPathComponent("cli/config.json")) {
+                    try AgentConfig.addingZCodeHook($0, entry: json, marker: "helium-terminal-hook.sh")
+                }
+            }
+        }
         let codexHome = path(env["CODEX_HOME"], relativeTo: home, default: home.appendingPathComponent(".codex").path)
         if (kind == .codex || kind == nil && (installed("codex", home: home, env: env) || FileManager.default.fileExists(atPath: codexHome.path))),
            configured.insert("codex:" + codexHome.path).inserted {

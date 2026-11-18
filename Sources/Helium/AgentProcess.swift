@@ -191,7 +191,7 @@ struct AgentRegistration {
     }
 
     /// Agents that report their own session from inside the process (an extension, plugin or hook).
-    static let reporting: Set<AgentSession.Kind> = [.omp, .opencode, .pi, .kimi]
+    static let reporting: Set<AgentSession.Kind> = [.omp, .opencode, .pi, .kimi, .mcode, .zcode]
 
     static func validSessionID(_ id: String, kind: AgentSession.Kind) -> Bool {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -200,6 +200,10 @@ struct AgentRegistration {
             return id.hasPrefix("ses_") && id.count > 4 && id.count <= 256 && id.unicodeScalars.allSatisfy(allowed.contains)
         case .kimi:
             return id.hasPrefix("session_") && UUID(uuidString: String(id.dropFirst(8))) != nil
+        case .zcode: // Workflow child actors use `sess_dwf-…`, which is not a UUID and never a pane's session.
+            return id.hasPrefix("sess_") && UUID(uuidString: String(id.dropFirst(5))) != nil
+        case .mcode:
+            return id.count == 36 && id.hasPrefix("mvs_") && id.dropFirst(4).allSatisfy { $0.isHexDigit && !$0.isUppercase }
         case .pi: // UUIDv7 by default, but `pi --session-id` takes any [A-Za-z0-9._-] name.
             return (1...256).contains(id.count) && !id.hasPrefix("-") && !id.hasPrefix(".")
                 && id.unicodeScalars.allSatisfy { allowed.contains($0) || $0 == "." }

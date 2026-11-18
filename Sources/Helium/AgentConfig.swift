@@ -99,6 +99,127 @@ enum AgentConfig {
             + "[[hooks]]\nevent = \"SessionStart\"\ncommand = \(try jsonString(command))\n"
     }
 
+    /// MiniMax Code's default `tui.statusLine` items (status-line-items.ts); naming the list replaces the default.
+    static let miniMaxStatusItems = ["current-dir", "session-title", "git-branch", "review-link", "plan-mode", "approval-mode",
+                                     "model-with-reasoning", "context-window", "subagent", "token-quota", "context-remaining"]
+
+    /// Adds Helium's command as MiniMax Code's `tui.customStatusLine` and `custom-command` to `tui.statusLine`.
+    /// Line-based edits for the block YAML MiniMax itself writes (js-yaml); anything else, or a status command
+    /// of the user's own, is refused rather than rewritten.
+    static func addingMiniMaxStatusLine(_ text: String, command: String, marker: String) throws -> String {
+        var lines = text.components(separatedBy: "\n")
+        func indent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
+        func content(_ line: String) -> Bool {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return !t.isEmpty && !t.hasPrefix("#")
+        }
+        func scalar(_ value: Substring) -> String {
+            var v = value.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0].trimmingCharacters(in: .whitespaces)
+            if v.count >= 2, let q = v.first, q == "'" || q == "\"", v.last == q { v = String(v.dropFirst().dropLast()) }
+            return v
+        }
+        let quoted = try jsonString(command)
+        func custom(_ pad: String) -> [String] { ["\(pad)customStatusLine:", "\(pad)  command: \(quoted)", "\(pad)  timeoutMs: 2000"] }
+        func status(_ pad: String) -> [String] { ["\(pad)statusLine:"] + (miniMaxStatusItems + ["custom-command"]).map { "\(pad)  - \($0)" } }
+
+        guard let tui = lines.firstIndex(where: { $0 == "tui:" || $0.hasPrefix("tui:") && !content(String($0.dropFirst(4))) }) else {
+            if lines.contains(where: { $0.hasPrefix("tui:") }) { throw ConfigError.invalidConfig } // a flow mapping
+            let body = (["tui:"] + status("  ") + custom("  ")).joined(separator: "\n") + "\n"
+            return text.isEmpty || text.hasSuffix("\n") ? text + body : text + "\n" + body
+        }
+        var end = tui + 1
+        while end < lines.count, !content(lines[end]) || indent(lines[end]) > 0 { end += 1 }
+        let block = (tui + 1)..<end
+        let width = block.first { content(lines[$0]) }.map { indent(lines[$0]) } ?? 2
+        guard width > 0 else { throw ConfigError.invalidConfig }
+        let pad = String(repeating: " ", count: width)
+        func key(_ name: String) -> Int? { block.first { lines[$0].hasPrefix(pad + name + ":") } }
+        func children(of line: Int) -> Range<Int> {
+            var e = line + 1
+            while e < end, !content(lines[e]) || indent(lines[e]) > width
+                    || indent(lines[e]) == width && lines[e].dropFirst(width).hasPrefix("- ") { e += 1 }
+            return (line + 1)..<e
+        }
+
+        var additions: [String] = []
+        if let c = key("customStatusLine") {
+            guard lines[c...].prefix(children(of: c).count + 1).contains(where: { $0.contains(marker) }) else {
+                throw ConfigError.invalidConfig // the user's own status command
+            }
+        } else {
+            additions += custom(pad)
+        }
+        if let s = key("statusLine") {
+            let rest = lines[s].dropFirst(width + 11).trimmingCharacters(in: .whitespaces)
+            if rest.hasPrefix("[") {
+                guard let close = rest.lastIndex(of: "]") else { throw ConfigError.invalidConfig }
+                let items = rest[rest.index(after: rest.startIndex)..<close].split(separator: ",").map(scalar).filter { !$0.isEmpty }
+                guard !items.contains("build-mode") else { throw ConfigError.invalidConfig } // it hides the custom command
+                if !items.contains("custom-command") {
+                    lines[s] = pad + "statusLine: [" + (items + ["custom-command"]).joined(separator: ", ") + "]"
+                }
+            } else if !content(rest) {
+                let entries = children(of: s).filter { content(lines[$0]) }
+                let items = entries.map { scalar(lines[$0].trimmingCharacters(in: .whitespaces).dropFirst(2)) }
+                guard let last = entries.last, entries.allSatisfy({ lines[$0].trimmingCharacters(in: .whitespaces).hasPrefix("- ") }),
+                      !items.contains("build-mode") else { throw ConfigError.invalidConfig }
+                if !items.contains("custom-command") {
+                    lines.insert(String(repeating: " ", count: indent(lines[last])) + "- custom-command", at: last + 1)
+                }
+            } else { throw ConfigError.invalidConfig }
+        } else {
+            additions += status(pad)
+        }
+        lines.insert(contentsOf: additions, at: tui + 1)
+        return lines.joined(separator: "\n")
+    }
+
+    /// Adds a ZCode `SessionStart` hook to `hooks.events` and turns `hooks.enabled` on, editing the JSON in place.
+    /// Once Helium's entry is present the file is left alone, so a later "enabled": false stays the user's choice.
+    static func addingZCodeHook(_ text: String, entry: String, marker: String) throws -> String {
+        if text.contains(marker) { return text }
+        let source = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : text
+        var parser = JSONC(source)
+        let root = try parser.document()
+        guard case let .object(properties) = root.value else { throw ConfigError.invalidConfig }
+        let start = "\"SessionStart\":[\(entry)]"
+        func opening(_ node: Node, _ insertion: String, empty: Bool) -> (Int, String) {
+            (node.range.lowerBound + 1, insertion + (empty ? "" : ","))
+        }
+        var edits: [(at: Range<Int>, text: String)] = []
+        if let hooks = properties["hooks"] {
+            guard case let .object(fields) = hooks.value else { throw ConfigError.invalidConfig }
+            var added: [String] = []
+            if let enabled = fields["enabled"] {
+                if String(decoding: Array(source.utf8)[enabled.range], as: UTF8.self) != "true" { edits.append((enabled.range, "true")) }
+            } else {
+                added.append("\"enabled\":true")
+            }
+            if let events = fields["events"] {
+                guard case let .object(names) = events.value else { throw ConfigError.invalidConfig }
+                if let list = names["SessionStart"] {
+                    guard case let .array(items) = list.value else { throw ConfigError.invalidConfig }
+                    let (at, insertion) = opening(list, entry, empty: items.isEmpty)
+                    edits.append((at..<at, insertion))
+                } else {
+                    let (at, insertion) = opening(events, start, empty: names.isEmpty)
+                    edits.append((at..<at, insertion))
+                }
+            } else {
+                added.append("\"events\":{\(start)}")
+            }
+            if !added.isEmpty {
+                let (at, insertion) = opening(hooks, added.joined(separator: ","), empty: fields.isEmpty)
+                edits.append((at..<at, insertion))
+            }
+        } else {
+            let (at, insertion) = opening(root, "\"hooks\":{\"enabled\":true,\"events\":{\(start)}}", empty: properties.isEmpty)
+            edits.append((at..<at, insertion))
+        }
+        // Later edits first, so earlier byte ranges stay valid.
+        return edits.sorted { $0.at.lowerBound > $1.at.lowerBound }.reduce(source) { replacing($0, $1.at, with: $1.text) }
+    }
+
     private static func jsonString(_ value: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
         return String(decoding: data, as: UTF8.self)
