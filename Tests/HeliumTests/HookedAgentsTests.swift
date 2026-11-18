@@ -40,13 +40,16 @@ final class HookedAgentsTests: XCTestCase {
         XCTAssertThrowsError(try AgentConfig.addingMiniMaxStatusLine("tui: {theme: dark}\n", command: command, marker: marker))
     }
 
-    func testZCodeHookIsInsertedWithoutReformattingAndEnablesHooks() throws {
+    func testZCodeHooksAreInsertedWithoutReformattingAndEnableHooks() throws {
         let entry = #"{"hooks":[{"args":["/h/.zcode/cli/helium-terminal-hook.sh","zcode"],"command":"/bin/sh","type":"process"}]}"#
-        let empty = try AgentConfig.addingZCodeHook("", entry: entry, marker: marker)
+        let stop = #"{"hooks":[{"args":["/h/.zcode/cli/helium-terminal-hook.sh","zcode","idle"],"command":"/bin/sh","type":"process"}]}"#
+        let both = [(event: "SessionStart", entry: entry), (event: "Stop", entry: stop)]
+        let empty = try AgentConfig.addingZCodeHooks("", both, marker: marker)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(empty.utf8)) as? [String: Any])
         let hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
         XCTAssertEqual(hooks["enabled"] as? Bool, true)
         XCTAssertEqual(((hooks["events"] as? [String: Any])?["SessionStart"] as? [Any])?.count, 1)
+        XCTAssertEqual(((hooks["events"] as? [String: Any])?["Stop"] as? [Any])?.count, 1)
 
         let existing = """
         {
@@ -61,13 +64,38 @@ final class HookedAgentsTests: XCTestCase {
           }
         }
         """
-        let edited = try AgentConfig.addingZCodeHook(existing, entry: entry, marker: marker)
+        let edited = try AgentConfig.addingZCodeHooks(existing, both, marker: marker)
         XCTAssertEqual(edited, existing.replacingOccurrences(of: "\"enabled\": false", with: "\"enabled\": true")
-            .replacingOccurrences(of: "\"SessionStart\": [{", with: "\"SessionStart\": [\(entry),{"))
-        XCTAssertEqual(try AgentConfig.addingZCodeHook(edited, entry: entry, marker: marker), edited)
-        let noEvents = try AgentConfig.addingZCodeHook(#"{"hooks": {"x": 1}}"#, entry: entry, marker: marker)
+            .replacingOccurrences(of: "\"SessionStart\": [{", with: "\"SessionStart\": [\(entry),{")
+            .replacingOccurrences(of: "\"Stop\": [{", with: "\"Stop\": [\(stop),{"))
+        XCTAssertEqual(try AgentConfig.addingZCodeHooks(edited, both, marker: marker), edited)
+
+        // A 0.1.13 install has only SessionStart; the rest is added, and "enabled": false is the user's choice.
+        let old = #"{"hooks": {"enabled": false, "events": {"SessionStart": ["# + entry + #"]}}}"#
+        XCTAssertEqual(try AgentConfig.addingZCodeHooks(old, both, marker: marker),
+                       #"{"hooks": {"enabled": true, "events": {"Stop":["# + stop + #"],"SessionStart": ["# + entry + #"]}}}"#)
+        XCTAssertEqual(try AgentConfig.addingZCodeHooks(old, [both[0]], marker: marker), old)
+        let noEvents = try AgentConfig.addingZCodeHooks(#"{"hooks": {"x": 1}}"#, [both[0]], marker: marker)
         XCTAssertEqual(noEvents, #"{"hooks": {"enabled":true,"events":{"SessionStart":["# + entry + #"]},"x": 1}}"#)
-        XCTAssertThrowsError(try AgentConfig.addingZCodeHook(#"{"hooks": []}"#, entry: entry, marker: marker))
+        XCTAssertThrowsError(try AgentConfig.addingZCodeHooks(#"{"hooks": []}"#, both, marker: marker))
+    }
+
+    func testIndicatorPhrasesAndTitles() {
+        // Kimi Code, Grok, OpenCode V2 and omp ask for input with these; Claude's idle reminder is still done.
+        for text in ["Kimi Code approval required: Shell", "Kimi Code needs your answer: which branch?",
+                     "Grok: Approval required", "opencode: Input needs response", "omp: Waiting for input",
+                     "MCode: x: Permission needs your input", "Copilot: Needs approval",
+                     "Antigravity CLI needs tool confirmation"] {
+            XCTAssertTrue(Workspace.isWaitingForInput(text), text)
+        }
+        XCTAssertFalse(Workspace.isWaitingForInput("Claude Code: Claude is waiting for your input"))
+        XCTAssertFalse(Workspace.isWaitingForInput("Kimi Code task complete"))
+        XCTAssertTrue(Workspace.isWorking(title: "\u{23F3} hermes · model · ~/repo"))
+        XCTAssertTrue(Workspace.isWorking(title: "\u{280B} fixing tests - grok"))
+        XCTAssertFalse(Workspace.isWorking(title: "\u{2713} hermes · model · ~/repo"))
+        XCTAssertTrue(Workspace.titleAsksForInput("\u{26A0} hermes · model"))
+        XCTAssertTrue(Workspace.titleAsksForInput("\u{280B} Action required - grok"))
+        XCTAssertFalse(Workspace.titleAsksForInput("OpenCode"))
     }
 
     func testHookWithoutASessionReportsNone() throws {
@@ -90,6 +118,22 @@ final class HookedAgentsTests: XCTestCase {
         let report = try JSONSerialization.jsonObject(with: Data(contentsOf: state.appendingPathComponent("\(me).json"))) as? [String: Any]
         XCTAssertEqual(report?["kind"] as? String, "mcode")
         XCTAssertTrue(report?["sessionID"] is NSNull)
+        XCTAssertNil(report?["state"])
+
+        // ZCode's turn hooks pass a state.
+        let stateful = Process()
+        stateful.executableURL = URL(fileURLWithPath: "/bin/sh")
+        stateful.arguments = [AgentIntegrations.resourceDirectory.appendingPathComponent("hook.sh").path, "zcode", "blocked"]
+        stateful.environment = process.environment
+        let pipe = Pipe()
+        stateful.standardInput = pipe
+        try stateful.run()
+        pipe.fileHandleForWriting.write(Data(#"{"session_id":"sess_953fdc59-596a-455c-b93e-d0d7a95569a5"}"#.utf8))
+        try pipe.fileHandleForWriting.close()
+        stateful.waitUntilExit()
+        let second = try JSONSerialization.jsonObject(with: Data(contentsOf: state.appendingPathComponent("\(me).json"))) as? [String: Any]
+        XCTAssertEqual(second?["state"] as? String, "blocked")
+        XCTAssertEqual(second?["sessionID"] as? String, "sess_953fdc59-596a-455c-b93e-d0d7a95569a5")
     }
 
     func testProcessShapesIDsAndFlags() throws {
@@ -163,5 +207,6 @@ final class HookedAgentsTests: XCTestCase {
         XCTAssertEqual(latest.id, "1794976749243_enjoc") // after /clear and a new prompt
         XCTAssertEqual(latest.cwd, "/repo")
         XCTAssertNil(ClineSessions.hubCreated(hub, pid: 300, since: 1794976750))
+        XCTAssertNil(ClineSessions.status(sessions, id: "1794976698562_v6o3q")) // this fixture has no status column
     }
 }

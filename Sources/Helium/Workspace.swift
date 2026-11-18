@@ -178,13 +178,24 @@ final class Workspace {
     var focusedPane: PaneView? { focused ?? panes.first }
     var unread: Bool { panes.contains { $0.ringing } }
     var waiting: Bool { panes.contains { $0.waiting } }
-    var working: Bool { panes.contains { Self.isWorking(title: $0.surface.title) || $0.agent?.running == true } }
+    var working: Bool {
+        panes.contains {
+            Self.isWorking(title: $0.surface.title) || $0.surface.reportsProgress || $0.surface.programWorking
+                || $0.agent?.running == true
+        }
+    }
 
     /// Agents animate a glyph at the start of the title during a turn: Claude Code ◐◓◑◒ (✳ when idle),
-    /// Codex a braille spinner.
+    /// Codex and Grok Build a braille spinner, Hermes' TUI ⏳ (U+23F3).
     static func isWorking(title: String) -> Bool {
         guard let c = title.unicodeScalars.first else { return false }
-        return "◐◓◑◒".unicodeScalars.contains(c) || (0x2801...0x28FF).contains(c.value)
+        return "◐◓◑◒\u{23F3}".unicodeScalars.contains(c) || (0x2801...0x28FF).contains(c.value)
+    }
+
+    /// Hermes' TUI starts its title with ⚠ (U+26A0) while an approval, question or secret prompt is open;
+    /// Grok Build shows "Action required" (its glyph blinks, the words don't).
+    static func titleAsksForInput(_ title: String) -> Bool {
+        title.hasPrefix("\u{26A0}") || title.lowercased().contains("action required")
     }
 
     /// Agent notifications that mean "blocked until you answer" (Claude Code, Codex and similar),
@@ -194,16 +205,17 @@ final class Workspace {
         if isIdleReminder(text) { return false }
         return ["needs your input", "needs input", "awaiting input",
                 "needs your permission", "needs your approval", "waiting for approval", "waiting for your approval",
-                "requires approval", "waiting for your response",
+                "requires approval", "waiting for your response", "approval required", "action required",
+                "needs your answer", "needs response", "waiting for input", "needs approval", "needs permission",
+                "needs tool confirmation",
                 // Codex: "Approval requested: <command>", "Codex wants to edit <file>"
                 "approval requested", "wants to edit", "wants to run"].contains { t.contains($0) }
     }
 
     /// Claude Code's "Claude is waiting for your input", sent about 60 s after a turn ends.
-    /// It means the turn is done, not that the agent is blocked.
+    /// It means the turn is done, not that the agent is blocked. omp's "Waiting for input" does mean blocked.
     static func isIdleReminder(_ text: String) -> Bool {
-        let t = text.lowercased()
-        return t.contains("waiting for your input") || t.contains("waiting for input")
+        text.lowercased().contains("waiting for your input")
     }
 
     /// Set by double-clicking the tab; nil means the automatic title.

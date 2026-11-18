@@ -6,7 +6,13 @@ import SQLite3
 /// Hooks can't be used: in the hub they run with the first pane's environment. Both databases are internal and
 /// undocumented, so they are read defensively, read-only and off the main thread; any surprise means no answer.
 enum ClineSessions {
-    struct Found { let id: String; let cwd: String?; let at: Double }
+    struct Found {
+        let id: String
+        let cwd: String?
+        let at: Double
+        /// `running` during a turn, `pending` while a tool approval waits for the user, then `idle`.
+        var status: String? = nil
+    }
 
     private static let lock = NSLock()
     private static var found: [AgentProcess.Identity: Found] = [:]
@@ -29,9 +35,12 @@ enum ClineSessions {
             }
         }
         guard let cached else { return nil }
-        return AgentSession(kind: .cline, sessionID: cached.id, cwd: cached.cwd ?? Metadata.cwd(of: process.identity.pid),
-                            flags: AgentSession.resumableFlags(.cline, process.invocation.arguments),
-                            environment: process.environment.isEmpty ? nil : process.environment, command: process.command)
+        var session = AgentSession(kind: .cline, sessionID: cached.id, cwd: cached.cwd ?? Metadata.cwd(of: process.identity.pid),
+                                   flags: AgentSession.resumableFlags(.cline, process.invocation.arguments),
+                                   environment: process.environment.isEmpty ? nil : process.environment, command: process.command)
+        session.running = cached.status == "running"
+        session.blocked = cached.status == "pending"
+        return session
     }
 
     static func lookup(_ process: AgentProcess) -> Found? {
@@ -51,6 +60,8 @@ enum ClineSessions {
             if let hub = hubCreated(db.appendingPathComponent(name), pid: process.identity.pid, since: started),
                hub.at > best?.at ?? 0 { best = hub }
         }
+        // The hub writes the same row for the sessions it hosts.
+        if let id = best?.id { best?.status = status(db.appendingPathComponent("sessions.db"), id: id) }
         return best
     }
 
@@ -85,6 +96,24 @@ enum ClineSessions {
             """, pid: pid, since: Int64((since - 1) * 1000)) { row in
             (row.text(0), row.text(1), Double(row.int(2)) / 1000)
         }
+    }
+
+    static func status(_ url: URL, id: String) -> String? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else {
+            if let db { sqlite3_close(db) }
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 40)
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT status FROM sessions WHERE session_id = ?1", -1, &statement, nil) == SQLITE_OK,
+              let statement else { return nil }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return sqlite3_column_text(statement, 0).map { String(cString: $0) }
     }
 
     private static let iso: ISO8601DateFormatter = {

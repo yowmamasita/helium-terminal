@@ -172,6 +172,21 @@ While Claude Code or Codex is working, its tab gets a pulsing blue right edge. H
 both agents put at the start of the terminal title during a turn (Claude Code ◐◓◑◒, Codex a braille spinner), so
 it needs no hook and no polling. The edges stay still when Reduce Motion is on. Settings > General sets all three colors.
 
+## Working, waiting and done for other agents
+
+Besides the title spinners and notifications above, Helium reads the signals each agent already sends:
+
+- OSC 7501 (the Program Status Protocol): Copilot CLI, omp, OpenCode V2, MiniMax Code and Grok Build report
+  working, blocked and done on their own; Pi and Antigravity CLI do once the terminal answers their query, which
+  Helium does; Kimi Code does because panes set `PI_PROGRAM_STATUS=1`. Working shows the blue edge, blocked the
+  orange one until the agent moves on, and done (or idle after working) the green one.
+- OSC 9;4 progress (Copilot, Kimi Code, Grok Build): working for 15 s after each report, like Ghostty.
+- Titles: Hermes Agent's TUI (⏳ working, ⚠ needs you, ✓ done) and Grok Build's "Action required".
+- Helium's own integrations: OpenCode V1's plugin, ZCode's hooks (turn start, approval, stop) and Cline's
+  session status.
+
+Hermes Agent's default line-mode CLI sends nothing unless its `display.bell_on_complete` is turned on.
+
 ## CLI / socket API
 
 ```

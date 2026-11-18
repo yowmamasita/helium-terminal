@@ -127,19 +127,25 @@ enum AgentIntegrations {
                 }
             }
         }
-        // ZCode user hooks are off by default; `type: process` runs /bin/sh as zcode's own child.
+        // ZCode user hooks are off by default; `type: process` runs /bin/sh as zcode's own child. Besides the session,
+        // the hooks report working (a prompt or a tool ran), blocked (an approval is shown) and idle (the turn ended).
         let zcode = home.appendingPathComponent(".zcode", isDirectory: true)
         if (kind == .zcode || kind == nil && (installed("zcode", home: home, env: env) || FileManager.default.fileExists(atPath: zcode.path))),
            configured.insert("zcode:" + zcode.path).inserted {
             perform("ZCode hook") {
                 let script = zcode.appendingPathComponent("cli/helium-terminal-hook.sh")
                 try installLoader("hook.sh", at: script)
-                let entry: [String: Any] = ["hooks": [["type": "process", "command": "/bin/sh", "args": [script.path, "zcode"],
-                                                       "timeoutMs": 5000]]]
-                let json = String(decoding: try JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys, .withoutEscapingSlashes]),
-                                  as: UTF8.self)
+                let events = [("SessionStart", nil), ("UserPromptSubmit", "working"), ("PostToolUse", "working"),
+                              ("PermissionRequest", "blocked"), ("Stop", "idle")]
+                let entries = try events.map { event, state in
+                    let entry: [String: Any] = ["hooks": [["type": "process", "command": "/bin/sh",
+                                                           "args": [script.path, "zcode"] + (state.map { [$0] } ?? []),
+                                                           "timeoutMs": 5000]]]
+                    let data = try JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys, .withoutEscapingSlashes])
+                    return (event: event, entry: String(decoding: data, as: UTF8.self))
+                }
                 try update(zcode.appendingPathComponent("cli/config.json")) {
-                    try AgentConfig.addingZCodeHook($0, entry: json, marker: "helium-terminal-hook.sh")
+                    try AgentConfig.addingZCodeHooks($0, entries, marker: "helium-terminal-hook.sh")
                 }
             }
         }

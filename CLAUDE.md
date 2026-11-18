@@ -34,6 +34,9 @@ Not wanted: Electron or web views, session restore, a browser pane, Sparkle or o
   title, no more messages sent to it), and in the visible tab a sheet offers Wait (30 s) or Kill. A hung pane is
   never freed, because that joins the stuck thread: `destroy()` SIGKILLs its tty's processes and leaks the surface.
   Test with `HELIUM_DEBUG_HANG=1` at launch and `helium debug-hang --pane N`.
+- **Program status (`patches/ghostty-status-report.patch`):** libghostty parses OSC 7501 but its terminal
+  drops it; the patch answers the support query and passes each root record's state to Helium as
+  `GHOSTTY_ACTION_PROGRAM_STATUS`. Most agents report working/blocked/done this way; the README lists the rest.
 - **Ghostty themes aren't bundled** (2.6 MB). Users put themes in `~/.config/ghostty/themes`.
 - **Config:** the user's Ghostty config loads first, then `~/Library/Application Support/helium-terminal/config`,
   which Settings writes. Never rewrite the user's Ghostty config; it may be shared with Ghostty.app.

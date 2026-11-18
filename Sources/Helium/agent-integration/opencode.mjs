@@ -18,8 +18,20 @@ export default {
         const sessionID = route.name === "session" && typeof route.params?.sessionID === "string"
           ? route.params.sessionID
           : null
-        if (sessionID === previous) return
-        previous = sessionID
+        // Busy and waiting for this pane's session, so Helium can show working, waiting and done.
+        let state
+        if (sessionID) {
+          try {
+            const session = api.state.session
+            if (session.permission(sessionID)?.length || session.question(sessionID)?.length) state = "blocked"
+            else state = (session.status(sessionID)?.type ?? "idle") === "idle" ? "idle" : "working"
+          } catch {
+            // An older or newer TUI without this API still reports the session.
+          }
+        }
+        const key = `${sessionID}|${state}`
+        if (key === previous) return
+        previous = key
 
         let cwd
         try {
@@ -29,7 +41,7 @@ export default {
         }
 
         // Reporting atomically replaces metadata immediately, with no queue to retain.
-        void reportSession({ kind: "opencode", sessionID, cwd })
+        void reportSession({ kind: "opencode", sessionID, cwd, ...(state ? { state } : {}) })
       })
       return disposeRoot
     })

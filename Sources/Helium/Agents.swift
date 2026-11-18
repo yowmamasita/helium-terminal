@@ -31,8 +31,11 @@ struct AgentSession: Codable, Equatable {
     var cwd: String?
     /// The agent's own flags as it was started, minus resume/continue options and an initial prompt.
     var flags: [String]
-    /// Claude is in a turn or still has a background shell or monitor going. Polled, not saved.
+    /// Claude is in a turn or still has a background shell or monitor going; for other agents, a reported or
+    /// polled "working" state. Polled, not saved.
     var running = false
+    /// The agent reported (or its state file says) that it waits for the user's approval or answer. Not saved.
+    var blocked = false
     /// When Claude's status last moved to something other than "waiting" (blocked on a question or
     /// permission). An answer sent from elsewhere (the phone app) shows up here. Polled, not saved.
     var unblockedAt: Date?

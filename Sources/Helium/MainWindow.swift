@@ -240,6 +240,47 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         metadataChanged()
     }
 
+    /// A reported or polled state (OpenCode V1's plugin, ZCode's hooks, Cline's session status): blocked shows
+    /// orange and clears once the agent moves on; finishing a turn rings like a notification. Claude Code sends
+    /// its own notifications, so its busy flag only drives the blue edge.
+    private func agentStateChanged(_ pane: PaneView, from before: AgentSession?) {
+        guard let now = pane.agent, now.kind != .claude, let before, before.kind == now.kind,
+              before.sessionID == now.sessionID else { return }
+        if now.blocked, !before.blocked { notify(pane.surface, text: "needs your input") }
+        if !now.blocked, before.blocked { pane.waiting = false }
+        if !now.running, !now.blocked, before.running { notify(pane.surface, text: nil) }
+    }
+
+    /// Hermes' TUI starts its title with ⏳ while busy, ⚠ while it needs you and ✓ when idle; Grok puts
+    /// "Action required" in its title. Spinners alone already mean working (`Workspace.isWorking`).
+    func titleChanged(_ view: SurfaceView, from old: String) {
+        let asked = Workspace.titleAsksForInput(old), asks = Workspace.titleAsksForInput(view.title)
+        if asks, !asked { notify(view, text: "needs your input") }
+        if !asks, asked { view.pane?.waiting = false }
+        if old.hasPrefix("\u{23F3}"), view.title.hasPrefix("\u{2713}") { notify(view, text: nil) }
+    }
+
+    /// OSC 7501 (Program Status Protocol), sent by Pi, omp, OpenCode V2, MiniMax Code, Grok Build and others.
+    /// Working shows the blue edge; blocked is orange like a "needs input" notification and clears once the
+    /// program moves on; done, error, or going idle after working rings like a finished turn (OpenCode has no
+    /// done state). The pane's own notifications may ring as well, which changes nothing.
+    func programStatus(_ view: SurfaceView, _ state: ghostty_action_program_status_state_e) {
+        let previous = view.programStatus
+        view.programStatus = state
+        view.programStatusGroup = view.foregroundPID
+        if state == GHOSTTY_PROGRAM_STATUS_BLOCKED {
+            if previous != state { notify(view, text: "needs your input") }
+            return
+        }
+        if previous == GHOSTTY_PROGRAM_STATUS_BLOCKED, let pane = view.pane { pane.waiting = false }
+        if state == GHOSTTY_PROGRAM_STATUS_DONE || state == GHOSTTY_PROGRAM_STATUS_ERROR
+            || state == GHOSTTY_PROGRAM_STATUS_IDLE && previous == GHOSTTY_PROGRAM_STATUS_WORKING {
+            if previous != state { notify(view, text: nil) }
+            return
+        }
+        metadataChangedSoon()
+    }
+
     // MARK: Metadata
 
     private var metadataPending = false
@@ -379,8 +420,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
                    pane.agent?.sessionID.isEmpty == false, snapshot.session?.unpersisted == true { continue }
                 if snapshot.reported || snapshot.session != nil || !pane.awaitingAgentStart
                     || pane.agent?.kind != process.invocation.kind {
+                    let before = pane.agent
                     pane.agent = snapshot.session
                     pane.awaitingAgentStart = false
+                    agentStateChanged(pane, from: before)
                 }
                 if pane.waiting, let time = pane.agent?.unblockedAt, time > pane.waitingSince { pane.waiting = false }
                 continue

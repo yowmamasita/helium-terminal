@@ -144,8 +144,10 @@ final class Ghostty {
             guard let view else { return false }
             let raw = String(cString: a.set_title.title)
             let previousPrefix = view.codexPrefix
+            let previousTitle = view.title
             view.codexPrefix = CodexSessions.prefix(in: raw)
             view.title = CodexSessions.displayTitle(raw, prefix: view.codexPrefix)
+            if view.title != previousTitle { window.titleChanged(view, from: previousTitle) }
             if view.codexPrefix != previousPrefix {
                 DispatchQueue.main.async { [weak window] in window?.refreshAgents() }
             }
@@ -160,6 +162,15 @@ final class Ghostty {
             let title = String(cString: n.title)
             let body = String(cString: n.body)
             window.notify(view, text: [title, body].filter { !$0.isEmpty }.joined(separator: ": "))
+        case GHOSTTY_ACTION_PROGRESS_REPORT:
+            guard let view else { return false }
+            let state = a.progress_report.state
+            view.progressReportedAt = state == GHOSTTY_PROGRESS_STATE_SET || state == GHOSTTY_PROGRESS_STATE_INDETERMINATE
+                ? Date() : nil
+            window.metadataChangedSoon()
+        case GHOSTTY_ACTION_PROGRAM_STATUS:
+            guard let view else { return false }
+            window.programStatus(view, a.program_status.state)
         case GHOSTTY_ACTION_RING_BELL:
             guard let view else { return false }
             window.notify(view, text: nil)

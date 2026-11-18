@@ -15,6 +15,15 @@ final class SurfaceView: NSView, NSTextInputClient {
     private(set) var surface: ghostty_surface_t?
     var title = ""
     var codexPrefix: String?
+    /// The last OSC 9;4 progress report that wasn't a removal. Like Ghostty.app, a report counts for 15 s, so a
+    /// program that dies mid-task doesn't stay "working".
+    var progressReportedAt: Date?
+    var reportsProgress: Bool { progressReportedAt.map { Date().timeIntervalSince($0) < 15 } ?? false }
+    /// The last OSC 7501 root state, and the foreground process group that sent it: a program that exits
+    /// without reporting idle mustn't leave the pane working.
+    var programStatus: ghostty_action_program_status_state_e?
+    var programStatusGroup: pid_t = 0
+    var programWorking: Bool { programStatus == GHOSTTY_PROGRAM_STATUS_WORKING && programStatusGroup == foregroundPID }
     var pwd: String?
     weak var pane: PaneView?
 
@@ -47,7 +56,9 @@ final class SurfaceView: NSView, NSTextInputClient {
         agentStateDirectory = AgentIntegrations.makePaneDirectory(id)
         var env: [(String, String)] = [("HELIUM_PANE", "\(id)"), ("HELIUM_SOCKET", SocketServer.path),
                                       ("HELIUM_PANE_TOKEN", agentToken),
-                                      ("HELIUM_AGENT_INTEGRATION", AgentIntegrations.resourceDirectory.absoluteString)]
+                                      ("HELIUM_AGENT_INTEGRATION", AgentIntegrations.resourceDirectory.absoluteString),
+                                      // OSC 7501 status reports: Kimi Code (and Pi) send them only when asked or told to.
+                                      ("PI_PROGRAM_STATUS", "1")]
         if let agentStateDirectory { env.append(("HELIUM_AGENT_STATE_DIR", agentStateDirectory.path)) }
         let cStrings = env.flatMap { [strdup($0.0)!, strdup($0.1)!] }
         defer { cStrings.forEach { free($0) } }

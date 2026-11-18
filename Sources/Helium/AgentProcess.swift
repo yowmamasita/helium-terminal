@@ -183,10 +183,13 @@ struct AgentRegistration {
             guard let file, file.hasPrefix("/"), !file.utf8.contains(0) else { return nil }
         }
         let cwd = (request["cwd"] as? String).flatMap { $0.hasPrefix("/") && !$0.utf8.contains(0) ? $0 : nil }
-        let session = AgentSession(kind: kind, sessionID: id, cwd: cwd ?? Metadata.cwd(of: process.identity.pid),
+        var session = AgentSession(kind: kind, sessionID: id, cwd: cwd ?? Metadata.cwd(of: process.identity.pid),
                                    flags: AgentSession.resumableFlags(kind, process.invocation.arguments),
                                    sessionFile: file, environment: process.environment.isEmpty ? nil : process.environment,
                                    command: process.command)
+        // Optional "working" / "blocked" / "idle" from a plugin or hook (OpenCode V1, ZCode).
+        session.running = request["state"] as? String == "working"
+        session.blocked = request["state"] as? String == "blocked"
         return AgentRegistration(identity: process.identity, session: session)
     }
 

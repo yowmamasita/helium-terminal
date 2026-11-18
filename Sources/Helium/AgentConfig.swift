@@ -174,47 +174,57 @@ enum AgentConfig {
         return lines.joined(separator: "\n")
     }
 
-    /// Adds a ZCode `SessionStart` hook to `hooks.events` and turns `hooks.enabled` on, editing the JSON in place.
-    /// Once Helium's entry is present the file is left alone, so a later "enabled": false stays the user's choice.
-    static func addingZCodeHook(_ text: String, entry: String, marker: String) throws -> String {
-        if text.contains(marker) { return text }
+    /// Adds Helium's ZCode hooks (`event` → hook entry JSON) to `hooks.events`, editing the JSON in place. An event
+    /// whose list already holds a Helium entry (found by `marker`) is left alone. `hooks.enabled` is turned on only
+    /// when something is added, so turning hooks off again later stays the user's choice.
+    static func addingZCodeHooks(_ text: String, _ entries: [(event: String, entry: String)], marker: String) throws -> String {
         let source = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : text
         var parser = JSONC(source)
         let root = try parser.document()
         guard case let .object(properties) = root.value else { throw ConfigError.invalidConfig }
-        let start = "\"SessionStart\":[\(entry)]"
-        func opening(_ node: Node, _ insertion: String, empty: Bool) -> (Int, String) {
-            (node.range.lowerBound + 1, insertion + (empty ? "" : ","))
+        let bytes = Array(source.utf8)
+        func slice(_ node: Node) -> String { String(decoding: bytes[node.range], as: UTF8.self) }
+        func opening(_ node: Node, _ insertion: String, empty: Bool) -> (at: Range<Int>, text: String) {
+            (node.range.lowerBound + 1..<node.range.lowerBound + 1, insertion + (empty ? "" : ","))
         }
-        var edits: [(at: Range<Int>, text: String)] = []
+        var hookFields: [String: Node] = [:]
         if let hooks = properties["hooks"] {
             guard case let .object(fields) = hooks.value else { throw ConfigError.invalidConfig }
+            hookFields = fields
+        }
+        var eventLists: [String: Node] = [:]
+        if let events = hookFields["events"] {
+            guard case let .object(names) = events.value else { throw ConfigError.invalidConfig }
+            eventLists = names
+        }
+        var edits: [(at: Range<Int>, text: String)] = []
+        var newEvents: [String] = []
+        for (event, entry) in entries {
+            if let list = eventLists[event] {
+                guard case let .array(items) = list.value else { throw ConfigError.invalidConfig }
+                if slice(list).contains(marker) { continue }
+                edits.append(opening(list, entry, empty: items.isEmpty))
+            } else {
+                newEvents.append("\(try jsonString(event)):[\(entry)]")
+            }
+        }
+        guard !edits.isEmpty || !newEvents.isEmpty else { return text }
+        let events = newEvents.joined(separator: ",")
+        if let hooks = properties["hooks"] {
             var added: [String] = []
-            if let enabled = fields["enabled"] {
-                if String(decoding: Array(source.utf8)[enabled.range], as: UTF8.self) != "true" { edits.append((enabled.range, "true")) }
+            if let enabled = hookFields["enabled"] {
+                if slice(enabled) != "true" { edits.append((enabled.range, "true")) }
             } else {
                 added.append("\"enabled\":true")
             }
-            if let events = fields["events"] {
-                guard case let .object(names) = events.value else { throw ConfigError.invalidConfig }
-                if let list = names["SessionStart"] {
-                    guard case let .array(items) = list.value else { throw ConfigError.invalidConfig }
-                    let (at, insertion) = opening(list, entry, empty: items.isEmpty)
-                    edits.append((at..<at, insertion))
-                } else {
-                    let (at, insertion) = opening(events, start, empty: names.isEmpty)
-                    edits.append((at..<at, insertion))
-                }
+            if let node = hookFields["events"] {
+                if !newEvents.isEmpty { edits.append(opening(node, events, empty: eventLists.isEmpty)) }
             } else {
-                added.append("\"events\":{\(start)}")
+                added.append("\"events\":{\(events)}")
             }
-            if !added.isEmpty {
-                let (at, insertion) = opening(hooks, added.joined(separator: ","), empty: fields.isEmpty)
-                edits.append((at..<at, insertion))
-            }
+            if !added.isEmpty { edits.append(opening(hooks, added.joined(separator: ","), empty: hookFields.isEmpty)) }
         } else {
-            let (at, insertion) = opening(root, "\"hooks\":{\"enabled\":true,\"events\":{\(start)}}", empty: properties.isEmpty)
-            edits.append((at..<at, insertion))
+            edits.append(opening(root, "\"hooks\":{\"enabled\":true,\"events\":{\(events)}}", empty: properties.isEmpty))
         }
         // Later edits first, so earlier byte ranges stay valid.
         return edits.sorted { $0.at.lowerBound > $1.at.lowerBound }.reduce(source) { replacing($0, $1.at, with: $1.text) }
