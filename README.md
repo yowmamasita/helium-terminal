@@ -228,6 +228,7 @@ helium rename [--tab ID] ["API work"]        no title goes back to the automatic
 helium label [--tab ID] ["bug,urgent"]       set a tab's labels; none clears them
 helium group [--tab ID] ["auth"]             put a tab in a group (made if new); no name removes it
 helium send [--pane ID] "make test\n"
+helium send [--pane ID] --stdin              type standard input as is; keeps a password out of the command line
 helium read [--pane ID] [--scrollback]       print a pane's screen, or its whole history
 helium queue [--pane ID] ["run the tests"]    send after the agent's turn; no text opens the queue
 helium unqueue [--pane ID] [N]               cancel queued prompt N, or all

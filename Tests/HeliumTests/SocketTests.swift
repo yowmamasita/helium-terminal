@@ -61,6 +61,9 @@ final class SocketTests: XCTestCase {
         let read = CLI.requestArguments(["read", "--scrollback", "--pane", "4"])
         XCTAssertEqual(read?["scrollback"] as? Bool, true)
         XCTAssertEqual(read?["pane"] as? String, "4") // the valueless flag mustn't swallow the next option
+        let piped = CLI.requestArguments(["send", "--stdin", "--pane", "4"])
+        XCTAssertEqual(piped?["stdin"] as? Bool, true)
+        XCTAssertNil(piped?["arg"]) // the text is read from standard input, never from argv
         XCTAssertNil(CLI.requestArguments(["--help"]))
     }
 

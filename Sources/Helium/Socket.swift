@@ -311,6 +311,9 @@ enum CLI {
                                              split a pane
       focus <pane>                           focus a pane
       send [--pane ID] <text>                type text ("\\n" presses Return)
+      send|queue [--pane ID] --stdin         take the text from standard input, as is (a newline presses Return
+                                             in send): `rbw get sudo | helium send --stdin` keeps a password
+                                             out of the command line
       key [--pane ID] <key>...               press keys: esc enter tab space backspace delete up down left right
                                              home end pageup pagedown, with ctrl+ shift+ alt+ (ctrl+c, shift+tab)
       wait [--pane ID] [--timeout SECONDS]   block until the pane's agent is idle or blocked on you
@@ -331,9 +334,13 @@ enum CLI {
     """
 
     static func run(_ args: [String]) -> Int32 {
-        guard let req = requestArguments(args) else {
+        guard var req = requestArguments(args) else {
             print(usage)
             return 0
+        }
+        // --stdin: the text comes from standard input, so a password never appears in argv, `ps` or shell history.
+        if req.removeValue(forKey: "stdin") != nil {
+            req["arg"] = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         }
 
         if req["cmd"] as? String == "wait" { return wait(req) }
@@ -405,8 +412,8 @@ enum CLI {
         var i = 1
         while i < args.count {
             let a = args[i]
-            if a == "--scrollback" { // the one flag without a value
-                req["scrollback"] = true
+            if a == "--scrollback" || a == "--stdin" { // the flags without a value
+                req[String(a.dropFirst(2))] = true
                 i += 1
             } else if a.hasPrefix("--"), i + 1 < args.count {
                 req[String(a.dropFirst(2))] = args[i + 1]
