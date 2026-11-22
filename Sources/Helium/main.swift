@@ -15,17 +15,26 @@ if let first = args.first, (!first.hasPrefix("-") || ["--help", "-h"].contains(f
 }
 // `helium` typed in a shell opens the app instead of running it in the foreground.
 // LaunchServices starts the app with stdin on /dev/null, so this never fires for it.
+let executable = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
 if args.isEmpty, isatty(STDIN_FILENO) != 0 {
     // Via a symlink (/opt/homebrew/bin/helium), resolve to .app/Contents/MacOS/helium-terminal first.
-    let app = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
-        .resolvingSymlinksInPath()
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    guard app.pathExtension == "app" else {
+    guard let app = Launch.appBundle(containing: executable) else {
         FileHandle.standardError.write("helium: not inside an app bundle\n".data(using: .utf8)!)
         exit(1)
     }
     NSWorkspace.shared.open(app)
     exit(0)
+}
+// Started through the symlink with stdin not a terminal (a script, an agent, launchd), the app would run
+// in this process, where Bundle.main is /opt/homebrew/bin: no Info.plist, and the resource bundle lookup
+// crashes. Run the real binary in its place so Bundle.main is the app.
+if Launch.needsRelaunch(executable: executable, mainBundle: Bundle.main.bundleURL) {
+    let real = executable.resolvingSymlinksInPath().path
+    var argv = CommandLine.arguments.map { strdup($0) }
+    argv[0] = strdup(real)
+    execv(real, argv + [nil])
+    FileHandle.standardError.write("helium: cannot run \(real): \(String(cString: strerror(errno)))\n".data(using: .utf8)!)
+    exit(1)
 }
 
 // Panes inherit this environment, and `open` passes on its caller's. Opened from a Claude Code session,
